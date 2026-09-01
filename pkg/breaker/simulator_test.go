@@ -126,6 +126,47 @@ func TestSimulator_SelectOperateCancel(t *testing.T) {
 	}
 }
 
+// TestSimulator_IdempotentOperateEmitsConfirmation checks that a successful
+// Operate matching the breaker's current position — a no-op, since nothing
+// physically moves — still emits an EventPositionChanged confirming it,
+// rather than silently doing nothing observable. Without this, a SCADA
+// client that (re)issues a command matching the breaker's current state
+// gets no positive response on the position tag.
+func TestSimulator_IdempotentOperateEmitsConfirmation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sim := New(ctx, Config{InitialPosition: PositionClosed, MechanicalOperateTime: time.Millisecond})
+	defer sim.Close()
+
+	events, err := sim.Subscribe(ctx, EventPositionChanged)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	cmd := Command{Target: PositionClosed, Source: "test"} // already Closed: idempotent
+	id, err := sim.Select(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if err := sim.Operate(ctx, id, cmd); err != nil {
+		t.Fatalf("Operate: %v", err)
+	}
+
+	ev := waitForEvent(t, ctx, events, EventPositionChanged)
+	detail := ev.Detail.(PositionChangedDetail)
+	if detail.Position != PositionClosed {
+		t.Errorf("confirmation Position = %v, want Closed (unchanged)", detail.Position)
+	}
+
+	// The breaker must not have gone through Intermediate: this was a
+	// genuine no-op, not a real mechanical operation.
+	pos, _ := sim.Position()
+	if pos != PositionClosed {
+		t.Errorf("Position() = %v, want Closed", pos)
+	}
+}
+
 // isUnknownSelection reports whether err is an *UnknownSelectionError.
 func isUnknownSelection(err error) bool {
 	_, ok := errors.AsType[*UnknownSelectionError](err)

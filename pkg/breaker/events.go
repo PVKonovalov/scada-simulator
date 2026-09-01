@@ -13,9 +13,16 @@ import (
 type EventKind uint8
 
 const (
-	// EventPositionChanged fires whenever Position() changes.
+	// EventPositionChanged fires whenever Position() changes, and also as a
+	// confirmation when a successful Operate finds the breaker already at
+	// the requested position (a no-op Position() change) — so a SCADA
+	// client that just issued a command always sees a positive response on
+	// the position tag, not silence, even when nothing physically moved.
 	// Detail is PositionChangedDetail.
 	EventPositionChanged EventKind = iota
+	// EventMeasurementChanged fires whenever a new measurement is injected
+	// via EmulatorFeed.InjectMeasurement. Detail is Measurement.
+	EventMeasurementChanged
 	// EventProtectionPickedUp fires when a protection stage picks up
 	// (current exceeds its pickup but has not yet operated). Detail is
 	// PickedUpDetail.
@@ -47,6 +54,8 @@ func (k EventKind) String() string {
 	switch k {
 	case EventPositionChanged:
 		return "PositionChanged"
+	case EventMeasurementChanged:
+		return "MeasurementChanged"
 	case EventProtectionPickedUp:
 		return "ProtectionPickedUp"
 	case EventTrip:

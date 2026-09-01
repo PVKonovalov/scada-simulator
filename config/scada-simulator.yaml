@@ -5,41 +5,65 @@ dms:
     database:
       dsn: "postgres://rdss_dms_nca:rdss_dms_nca@127.0.0.1:5432/rdss_dms?sslmode=disable"
     scada:
+      host: 0.0.0.0
+      port: 8888
       username: admin
       password: Admin@rdss123
       grpc:
         host: 0.0.0.0
         port: 50051
-breaker:
-  # Identifies this breaker (e.g. a bay or feeder name); used only to prefix
-  # this breaker's internal log messages.
-  name: breaker-1
-  # Breaker position when the simulator starts: Open, Closed, Intermediate or Bad.
-  initial_position: closed
-  # Protection settings group active on start (1-4).
-  active_settings_group: 1
-  # Pre-populated protection settings groups; groups not listed are left
-  # disabled (pickup_current and instantaneous_pickup default to 0).
-  settings_groups:
-    - group: 1
-      settings:
-        # Stage 51 (time overcurrent): pickup, curve, time multiplier.
-        pickup_current: 400        # amps
-        curve: iec_standard_inverse # definite_time | iec_standard_inverse | iec_very_inverse | iec_extremely_inverse
-        time_multiplier: 0.3        # TMS, per IEC 60255
-        definite_time: 500ms        # used only when curve is definite_time
-        # Stage 50 (instantaneous): pickup, 0 disables the stage.
-        instantaneous_pickup: 2000  # amps
-        reset_time: 2s
-  # ANSI device 79 automatic reclose sequence.
-  auto_reclose:
-    enabled: true
-    max_attempts: 2
-    dead_times: [5s, 15s]  # dead time before each attempt; must have at least max_attempts entries
-    reclaim_time: 30s
-  # How long an Open/Close operation takes to settle (breaker travel time).
-  mechanical_operate_time: 60ms
-  # How long a select-before-operate selection may go un-operated/un-cancelled before it expires.
-  selection_timeout: 10s
-  # Power-system frequency, used to size the instantaneous stage's operate delay.
-  nominal_frequency_hz: 50
+# One entry per breaker to emulate; the number of breakers emulated is
+# simply the length of this list.
+breakers:
+  - # Identifies this breaker (e.g. a bay or feeder name); used to prefix
+    # this breaker's internal log messages, and will identify it in SCADA tags.
+    name: feeder-1
+    # Breaker position when the simulator starts: Open, Closed, Intermediate or Bad.
+    initial_position: closed
+    # Protection settings group active on start (1-4).
+    active_settings_group: 1
+    # Pre-populated protection settings groups; groups not listed are left
+    # disabled (pickup_current and instantaneous_pickup default to 0).
+    settings_groups:
+      - group: 1
+        settings:
+          # Stage 51 (time overcurrent): pickup, curve, time multiplier.
+          pickup_current: 400        # amps
+          curve: iec_standard_inverse # definite_time | iec_standard_inverse | iec_very_inverse | iec_extremely_inverse
+          time_multiplier: 0.3        # TMS, per IEC 60255
+          definite_time: 500ms        # used only when curve is definite_time
+          # Stage 50 (instantaneous): pickup, 0 disables the stage.
+          instantaneous_pickup: 2000  # amps
+          reset_time: 2s
+    # ANSI device 79 automatic reclose sequence.
+    auto_reclose:
+      enabled: true
+      max_attempts: 2
+      dead_times: [5s, 15s]  # dead time before each attempt; must have at least max_attempts entries
+      reclaim_time: 30s
+    # How long an Open/Close operation takes to settle (breaker travel time).
+    mechanical_operate_time: 60ms
+    # How long a select-before-operate selection may go un-operated/un-cancelled before it expires.
+    selection_timeout: 10s
+    # Power-system frequency, used to size the instantaneous stage's operate delay.
+    nominal_frequency_hz: 50
+
+  - name: feeder-2
+    initial_position: open
+    active_settings_group: 1
+    settings_groups:
+      - group: 1
+        settings:
+          pickup_current: 250
+          curve: iec_very_inverse
+          time_multiplier: 0.2
+          instantaneous_pickup: 1500
+          reset_time: 2s
+    auto_reclose:
+      enabled: true
+      max_attempts: 3
+      dead_times: [5s, 15s, 60s]
+      reclaim_time: 30s
+    mechanical_operate_time: 60ms
+    selection_timeout: 10s
+    nominal_frequency_hz: 50

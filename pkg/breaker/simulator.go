@@ -399,6 +399,7 @@ func (s *Simulator) InjectMeasurement(m Measurement) error {
 // which needs no background timer of its own.
 func (s *Simulator) evaluateProtection(st *simState, m Measurement) {
 	st.measurement = m
+	s.emit(st, EventMeasurementChanged, m)
 
 	now := time.Now()
 	var dt time.Duration
@@ -651,7 +652,12 @@ func (s *Simulator) doOperate(st *simState, id SelectionID, cmd Command) error {
 	delete(st.selections, id)
 
 	if st.position == sel.cmd.Target && st.position != PositionIntermediate {
-		return nil // idempotent: already at the requested position
+		// Idempotent: already at the requested position. Still emit a
+		// confirmation so a SCADA client that just issued the command sees
+		// a positive response on the tag, not silence — see
+		// EventPositionChanged's doc comment.
+		s.emit(st, EventPositionChanged, PositionChangedDetail{Position: st.position, Quality: st.posQuality})
+		return nil
 	}
 	if st.position == PositionIntermediate {
 		return s.rejectControl(st, cmd, "breaker mechanism already in motion")

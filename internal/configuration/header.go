@@ -22,11 +22,20 @@ type Configuration struct {
 				// Dsn is the Postgres connection string.
 				Dsn string `yaml:"dsn" env:"true"`
 			} `yaml:"database"`
-			// Scada configures the SCADA gRPC endpoint the DMS exposes.
+			// Scada configures the endpoints this simulator serves as the
+			// "SCADA" side of the DMS connection: a REST API (Host/Port)
+			// for POST /api/token, and a gRPC API (Grpc.Host/Grpc.Port)
+			// for the TelemetryStream service. Username/Password are the
+			// credentials a DMS-side client (e.g. rdss-dms-rtdb) must
+			// present to /api/token to authenticate.
 			Scada struct {
-				// Username authenticates the simulator to the DMS.
+				// Host is the REST API listen address.
+				Host string `yaml:"host" env:"true"`
+				// Port is the REST API listen port.
+				Port int `yaml:"port" env:"true"`
+				// Username a client must present to POST /api/token.
 				Username string `yaml:"username" env:"true"`
-				// Password authenticates the simulator to the DMS.
+				// Password a client must present to POST /api/token.
 				Password string `yaml:"password" env:"true"`
 				// Grpc configures the gRPC listener/endpoint.
 				Grpc struct {
@@ -38,8 +47,10 @@ type Configuration struct {
 			} `yaml:"scada"`
 		} `yaml:"api"`
 	} `yaml:"dms"`
-	// Breaker configures the simulated HV circuit breaker and protection
-	// relay (see pkg/breaker.Config) — its initial position, protection
-	// settings, autoreclose behaviour, and mechanical/frequency constants.
-	Breaker breaker.Config `yaml:"breaker"`
+	// Breakers configures the simulated HV circuit breakers and protection
+	// relays to emulate (see pkg/breaker.Config) — one entry per breaker,
+	// each with its own name, initial position, protection settings,
+	// autoreclose behaviour, and mechanical/frequency constants. The number
+	// of breakers emulated is simply len(Breakers).
+	Breakers []breaker.Config `yaml:"breakers"`
 }

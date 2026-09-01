@@ -142,6 +142,7 @@ const (
 	ScadaSupervisoryControlResult_ERROR_NOT_SUPPORTED       ScadaSupervisoryControlResult = 4
 	ScadaSupervisoryControlResult_ERROR_OBJECT_IS_NOT_FOUND ScadaSupervisoryControlResult = 5
 	ScadaSupervisoryControlResult_ERROR_ITEM_IS_NOT_FOUND   ScadaSupervisoryControlResult = 6
+	ScadaSupervisoryControlResult_ERROR_NOT_SELECTED        ScadaSupervisoryControlResult = 7
 )
 
 // Enum value maps for ScadaSupervisoryControlResult.
@@ -154,6 +155,7 @@ var (
 		4: "ERROR_NOT_SUPPORTED",
 		5: "ERROR_OBJECT_IS_NOT_FOUND",
 		6: "ERROR_ITEM_IS_NOT_FOUND",
+		7: "ERROR_NOT_SELECTED",
 	}
 	ScadaSupervisoryControlResult_value = map[string]int32{
 		"OK":                        0,
@@ -163,6 +165,7 @@ var (
 		"ERROR_NOT_SUPPORTED":       4,
 		"ERROR_OBJECT_IS_NOT_FOUND": 5,
 		"ERROR_ITEM_IS_NOT_FOUND":   6,
+		"ERROR_NOT_SELECTED":        7,
 	}
 )
 
@@ -531,7 +534,7 @@ const file_api_scada_telemetry_proto_rawDesc = "" +
 	"\x10QDS_QUESTIONABLE\x10\x02\x12\x13\n" +
 	"\x0fQDS_SUBSTITUTED\x10\x03\x12\x0f\n" +
 	"\vQDS_BLOCKED\x10\x04\x12\f\n" +
-	"\bQDS_TEST\x10\x05*\xb4\x01\n" +
+	"\bQDS_TEST\x10\x05*\xcc\x01\n" +
 	"\x1dScadaSupervisoryControlResult\x12\x06\n" +
 	"\x02OK\x10\x00\x12\x11\n" +
 	"\rERROR_TIMEOUT\x10\x01\x12\x11\n" +
@@ -539,7 +542,8 @@ const file_api_scada_telemetry_proto_rawDesc = "" +
 	"\fERROR_UNKNOW\x10\x03\x12\x17\n" +
 	"\x13ERROR_NOT_SUPPORTED\x10\x04\x12\x1d\n" +
 	"\x19ERROR_OBJECT_IS_NOT_FOUND\x10\x05\x12\x1b\n" +
-	"\x17ERROR_ITEM_IS_NOT_FOUND\x10\x062\xe8\x01\n" +
+	"\x17ERROR_ITEM_IS_NOT_FOUND\x10\x06\x12\x16\n" +
+	"\x12ERROR_NOT_SELECTED\x10\a2\xe8\x01\n" +
 	"\x0fTelemetryStream\x12X\n" +
 	"\tSubscribe\x12$.rdss.telemetry.v1.SubstationRequest\x1a#.rdss.telemetry.v1.SubstationUpdate0\x01\x12{\n" +
 	"\x12SupervisoryControl\x121.rdss.telemetry.v1.ScadaSupervisoryControlRequest\x1a2.rdss.telemetry.v1.ScadaSupervisoryControlResponseB\fZ\n" +

@@ -64,10 +64,62 @@ real timers; the state machine itself owns none.
 and fixed operating characteristics — name, position, protection settings,
 autoreclose behaviour, mechanical operate time, nominal frequency — and can
 be loaded directly from YAML. `Name` has no effect on simulation behaviour;
-it only prefixes this `Simulator`'s internal log messages so logs from
-multiple breakers are distinguishable. In this repository it is embedded as
-`Configuration.Breaker` in `internal/configuration`, populated from the
-`breaker:` section of `config/scada-simulator.yaml`.
+it prefixes this `Simulator`'s internal log messages and identifies it in
+SCADA tag names (see below) so multiple breakers are distinguishable. In
+this repository more than one breaker can be emulated at once: each entry
+in `Configuration.Breakers` (`internal/configuration`) is one `Config`,
+populated from the `breakers:` list in `config/scada-simulator.yaml` — the
+number of breakers emulated is simply the length of that list.
+
+## SCADA tag naming
+
+Implemented by `internal/telemetryserver.TelemetryServer` for `Subscribe`
+and `SupervisoryControl` (see its package doc and `control.go`), and
+listable ahead of time via `internal/restserver`'s `GET
+/api/external/telemetry/tags` (`telemetryserver.TagsFor`). Every tag is
+hierarchical and dot-separated, `<breaker-name>.<category>.<leaf>`, never an
+underscore-joined compound like `active_power` — e.g. `power.active`, not
+`active_power`. `<breaker-name>` is `Config.Name`, so tags stay unambiguous
+across multiple emulated breakers.
+
+| Tag | Source | Values | SCADA type |
+|---|---|---|---|
+| `<name>.position` | `Position()` (read-only) | `Intermediate` / `Open` / `Closed` / `Bad` | integer (2-bit DPI) |
+| `<name>.blocked` | `Position()`'s quality (`qds.QdsBlocked`) | boolean | boolean (1-bit DI) |
+| `<name>.control` | *(control-only — see below; listed by `GET /api/external/telemetry/tags`, but never read via Subscribe)* | `0` = Open, `1` = Close | boolean (1-bit DI) |
+| `<name>.current.a` / `.current.b` / `.current.c` | `Measurement()` | amps | float |
+| `<name>.voltage.a` / `.voltage.b` / `.voltage.c` | `Measurement()` | volts | float |
+| `<name>.power.active` / `.power.reactive` / `.power.apparent` | `Measurement()` | W / VAR / VA | float |
+| `<name>.frequency` | `Measurement()` | Hz | float |
+| `<name>.protection.state` | `ProtectionStatus()` | `Normal` / `PickedUp` / `Tripped` / `Lockout` | boolean (1-bit DI) |
+| `<name>.protection.group` | `ProtectionStatus()` | 1–4 | boolean (1-bit DI) |
+| `<name>.autoreclose.state` | `AutoRecloseStatus()` | `Ready` / `DeadTime` / `Closing` / `Reclaim` / `Lockout` | boolean (1-bit DI) |
+| `<name>.autoreclose.attempt` | `AutoRecloseStatus()` | 0, 1, 2, … | boolean (1-bit DI) |
+
+`<name>.position` is the only tag reported as a 2-bit integer: it is this
+package's one point with true double-point semantics (four states,
+mirroring a real breaker's 52a/52b auxiliary contacts). Every other
+non-analog tag — even one carrying more than two possible values, like
+`protection.state` or `autoreclose.attempt` — is reported as an ordinary
+1-bit `boolean` DataPoint instead, still carrying its real numeric `Value`
+(`internal/telemetryserver`'s `diPoint`, as opposed to `intPoint`, reserved
+for `position`).
+
+`<name>.control` is deliberately a separate tag from `<name>.position`: in
+`api/scada/telemetry.proto`'s `ScadaSupervisoryControlRequest`, `key`
+identifies the point being controlled, and a control point is a distinct
+SCADA object from the read-only status point reporting the same physical
+breaker's position (standard IEC 60870/61850 practice) — a client writes
+`<name>.control`, never `<name>.position`. `select`/`execute` follow
+`BreakerController`'s select-before-operate semantics (a select-only
+request arms the command; a later execute-only request for the same `key`
+carries it out — the server tracks the pending selection itself, since the
+request has no field to echo a token back); a request with both set
+performs both in one call. `test` always performs an immediate Select+Execute
+(regardless of `select`/`execute`'s own values) and puts the breaker into
+test mode: every tag this server reports for it via `Subscribe` carries
+`qds.QdsTest` quality until a later call explicitly sets `test` back to
+`false`, which clears it.
 
 ## Running the example
 
