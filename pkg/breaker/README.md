@@ -115,9 +115,11 @@ breaker's position (standard IEC 60870/61850 practice) — a client writes
 request arms the command; a later execute-only request for the same `key`
 carries it out — the server tracks the pending selection itself, since the
 request has no field to echo a token back); a request with both set
-performs both in one call. `test` always performs an immediate Select+Execute
-(regardless of `select`/`execute`'s own values) and puts the breaker into
-test mode: every tag this server reports for it via `Subscribe` carries
+performs both in one call. `test` is a pure quality modifier layered on top
+of whatever `select`/`execute` already request — it does not change which
+action is taken (`select` alone still only arms; `test` alone, with neither
+`select` nor `execute`, does nothing). Setting it puts the breaker into test
+mode: every tag this server reports for it via `Subscribe` carries
 `qds.QdsTest` quality until a later call explicitly sets `test` back to
 `false`, which clears it.
 

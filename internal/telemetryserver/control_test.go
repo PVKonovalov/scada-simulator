@@ -65,10 +65,12 @@ func TestSupervisoryControl_SelectAndExecuteTogether(t *testing.T) {
 	waitForPosition(t, sim, breaker.PositionOpen)
 }
 
-// TestSupervisoryControl_Test checks that Test performs a real Select+Execute
-// (the breaker actually moves) and marks the breaker's tags qds.QdsTest —
-// visible on Subscribe as DataPointQuality_QDS_TEST — until a later call
-// explicitly sets Test back to false, which clears it.
+// TestSupervisoryControl_Test checks that Test only changes the quality
+// flag — it does not by itself move the breaker or change what Select/
+// Execute would otherwise do; combined with Select+Execute it performs a
+// real Select+Execute (the breaker actually moves) and marks the breaker's
+// tags qds.QdsTest — visible on Subscribe as DataPointQuality_QDS_TEST —
+// until a later call explicitly sets Test back to false, which clears it.
 func TestSupervisoryControl_Test(t *testing.T) {
 	client, sim, cleanup := startTestServer(t)
 	defer cleanup()
@@ -85,7 +87,7 @@ func TestSupervisoryControl_Test(t *testing.T) {
 	}
 
 	resp, err := client.SupervisoryControl(ctx, &telemetry.ScadaSupervisoryControlRequest{
-		Key: "test.control", Value: 0, Test: true, ClientId: "unit-test",
+		Key: "test.control", Value: 0, Select: true, Execute: true, Test: true, ClientId: "unit-test",
 	})
 	if err != nil {
 		t.Fatalf("test: %v", err)
@@ -94,8 +96,9 @@ func TestSupervisoryControl_Test(t *testing.T) {
 		t.Fatalf("result = %v, want OK", resp.GetResult())
 	}
 
-	// Test performs a real Select+Execute: the breaker actually moves, and
-	// every pushed tag carries QDS_TEST quality along the way.
+	// Select+Execute do the real work; Test only adds the quality marking —
+	// the breaker actually moves, and every pushed tag carries QDS_TEST
+	// quality along the way.
 	for {
 		update, err := stream.Recv()
 		if err != nil {
@@ -142,6 +145,37 @@ func TestSupervisoryControl_Test(t *testing.T) {
 		if pos.GetValue() == float32(breaker.PositionClosed) {
 			break
 		}
+	}
+}
+
+// TestSupervisoryControl_SelectWithTestDoesNotOperate checks that Test does
+// not itself trigger execution: Select+Test with Execute false must only
+// arm the selection (matching what Select alone would do), never move the
+// breaker — Test changes quality marking only, not which action is taken.
+func TestSupervisoryControl_SelectWithTestDoesNotOperate(t *testing.T) {
+	client, sim, cleanup := startTestServer(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	startPos, _ := sim.Position()
+
+	resp, err := client.SupervisoryControl(ctx, &telemetry.ScadaSupervisoryControlRequest{
+		Key: "test.control", Value: 0, Select: true, Test: true, ClientId: "unit-test",
+	})
+	if err != nil {
+		t.Fatalf("select+test: %v", err)
+	}
+	if resp.GetResult() != telemetry.ScadaSupervisoryControlResult_OK {
+		t.Fatalf("result = %v, want OK", resp.GetResult())
+	}
+
+	// Give any (incorrect) mechanical operation a moment to start, then
+	// confirm nothing moved.
+	time.Sleep(20 * time.Millisecond)
+	if pos, _ := sim.Position(); pos != startPos {
+		t.Errorf("Position() = %v, want unchanged %v (Select+Test must not operate)", pos, startPos)
 	}
 }
 

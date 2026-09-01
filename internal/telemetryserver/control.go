@@ -30,17 +30,17 @@ const controlTagSuffix = ".control"
 // A request with both Select and Execute set performs both in one call,
 // with no separate select phase.
 //
-// Test does not validate-only or skip execution — it always performs an
-// immediate Select+Execute of cmd (like Select and Execute both set,
-// regardless of their actual values on this request), and marks the
-// breaker as being in test mode: every tag this server reports for it via
-// Subscribe carries qds.QdsTest quality until a later SupervisoryControl
-// call for the same breaker explicitly sets Test back to false, which
-// clears it (this call's own status log line below is unaffected — it
-// always reports the simulator's real, unmarked quality, for accurate
-// diagnostics). Test mode is recorded unconditionally from every call's
-// Test value (see setTestMode below), independent of whether that call's
-// command itself succeeds.
+// Test is a pure quality modifier, layered on top of whatever Select/
+// Execute already request — it does not change what action is taken
+// (Select-only still only arms; a request with neither Select nor Execute
+// still does nothing). Setting it marks the breaker as being in test mode:
+// every tag this server reports for it via Subscribe carries qds.QdsTest
+// quality until a later SupervisoryControl call for the same breaker
+// explicitly sets Test back to false, which clears it (this call's own
+// status log line below is unaffected — it always reports the simulator's
+// real, unmarked quality, for accurate diagnostics). Test mode is recorded
+// unconditionally from every call's Test value (see setTestMode below),
+// independent of whether that call's command itself succeeds.
 //
 // Every call is logged at Info level twice: the incoming request (key,
 // value, flags) before any validation, and the outcome — result, whether
@@ -51,12 +51,13 @@ const controlTagSuffix = ".control"
 // Intermediate on Subscribe: it is true only when Operate actually started
 // a mechanical transition (Position reads Intermediate at this point, not
 // yet settled — see beginOperate/completeOperate). moved is always false
-// for a Select-only call (it never moves the breaker on its own), and also
-// false for an Operate/Test that found the breaker already at the requested
-// position (see EventPositionChanged's doc comment on that still-
-// successful, still-confirmed case) — in both of the latter cases, result
-// is still OK, so a caller must check both fields, not result alone, to
-// know whether anything physically happened.
+// for a Select-only call, or one with neither Select nor Execute (neither
+// ever moves the breaker on its own), and also false for an Operate that
+// found the breaker already at the requested position (see
+// EventPositionChanged's doc comment on that still-successful, still-
+// confirmed case) — in both of the latter cases, result is still OK, so a
+// caller must check both fields, not result alone, to know whether
+// anything physically happened.
 func (s *TelemetryServer) SupervisoryControl(ctx context.Context, req *telemetry.ScadaSupervisoryControlRequest) (*telemetry.ScadaSupervisoryControlResponse, error) {
 	s.logger.Infof("telemetry: control %s value=%d select=%t execute=%t test=%t client_id=%q",
 		req.GetKey(), req.GetValue(), req.GetSelect(), req.GetExecute(), req.GetTest(), req.GetClientId())
@@ -85,17 +86,15 @@ func (s *TelemetryServer) SupervisoryControl(ctx context.Context, req *telemetry
 		result = telemetry.ScadaSupervisoryControlResult_ERROR_BLOCKED
 	} else {
 		switch {
-		case req.GetTest(), req.GetSelect() && req.GetExecute():
-			// Test always performs an immediate Select+Execute, regardless
-			// of Select/Execute's own values on this request — see the
-			// method doc comment.
+		case req.GetSelect() && req.GetExecute():
 			result = s.selectAndExecute(ctx, sim, cmd)
 		case req.GetSelect():
 			result = s.selectControl(ctx, req.GetKey(), sim, cmd)
 		case req.GetExecute():
 			result = s.executeControl(ctx, req.GetKey(), sim, cmd)
 		default:
-			// Neither Select, Execute nor Test was set: nothing to do.
+			// Neither Select nor Execute was set: nothing to do (Test alone
+			// cannot act — see the method doc comment).
 			result = telemetry.ScadaSupervisoryControlResult_ERROR_NOT_SUPPORTED
 		}
 	}
