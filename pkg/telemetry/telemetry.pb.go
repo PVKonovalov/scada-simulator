@@ -196,29 +196,29 @@ func (ScadaSupervisoryControlResult) EnumDescriptor() ([]byte, []int) {
 	return file_api_scada_telemetry_proto_rawDescGZIP(), []int{2}
 }
 
-// ScadaMode mirrors IEC 61850 Edition 1's Mod/Beh enumeration. TEST_BLOCKED
-// (4) is deliberately not modelled by this simulator, so values skip from
-// TEST (3) straight to OFF (5).
-type ScadaMode int32
+// ProtectionTerminalMode mirrors IEC 61850 Edition 1's Mod/Beh enumeration.
+// TEST_BLOCKED (4) is deliberately not modelled by this simulator, so
+// values skip from TEST (3) straight to OFF (5).
+type ProtectionTerminalMode int32
 
 const (
-	ScadaMode_MODE_UNKNOWN ScadaMode = 0
-	ScadaMode_MODE_ON      ScadaMode = 1
-	ScadaMode_MODE_BLOCKED ScadaMode = 2
-	ScadaMode_MODE_TEST    ScadaMode = 3
-	ScadaMode_MODE_OFF     ScadaMode = 5
+	ProtectionTerminalMode_MODE_UNKNOWN ProtectionTerminalMode = 0
+	ProtectionTerminalMode_MODE_ON      ProtectionTerminalMode = 1
+	ProtectionTerminalMode_MODE_BLOCKED ProtectionTerminalMode = 2
+	ProtectionTerminalMode_MODE_TEST    ProtectionTerminalMode = 3
+	ProtectionTerminalMode_MODE_OFF     ProtectionTerminalMode = 5
 )
 
-// Enum value maps for ScadaMode.
+// Enum value maps for ProtectionTerminalMode.
 var (
-	ScadaMode_name = map[int32]string{
+	ProtectionTerminalMode_name = map[int32]string{
 		0: "MODE_UNKNOWN",
 		1: "MODE_ON",
 		2: "MODE_BLOCKED",
 		3: "MODE_TEST",
 		5: "MODE_OFF",
 	}
-	ScadaMode_value = map[string]int32{
+	ProtectionTerminalMode_value = map[string]int32{
 		"MODE_UNKNOWN": 0,
 		"MODE_ON":      1,
 		"MODE_BLOCKED": 2,
@@ -227,30 +227,30 @@ var (
 	}
 )
 
-func (x ScadaMode) Enum() *ScadaMode {
-	p := new(ScadaMode)
+func (x ProtectionTerminalMode) Enum() *ProtectionTerminalMode {
+	p := new(ProtectionTerminalMode)
 	*p = x
 	return p
 }
 
-func (x ScadaMode) String() string {
+func (x ProtectionTerminalMode) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (ScadaMode) Descriptor() protoreflect.EnumDescriptor {
+func (ProtectionTerminalMode) Descriptor() protoreflect.EnumDescriptor {
 	return file_api_scada_telemetry_proto_enumTypes[3].Descriptor()
 }
 
-func (ScadaMode) Type() protoreflect.EnumType {
+func (ProtectionTerminalMode) Type() protoreflect.EnumType {
 	return &file_api_scada_telemetry_proto_enumTypes[3]
 }
 
-func (x ScadaMode) Number() protoreflect.EnumNumber {
+func (x ProtectionTerminalMode) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use ScadaMode.Descriptor instead.
-func (ScadaMode) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use ProtectionTerminalMode.Descriptor instead.
+func (ProtectionTerminalMode) EnumDescriptor() ([]byte, []int) {
 	return file_api_scada_telemetry_proto_rawDescGZIP(), []int{3}
 }
 
@@ -557,12 +557,12 @@ func (x *ScadaSupervisoryControlRequest) GetClientId() string {
 	return ""
 }
 
-type ScadaSetModeRequest struct {
+type ProtectionTerminalSetModeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Point identifier, "<breaker-name>.mode"
 	Key string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
 	// The mode to set the breaker to
-	Mode ScadaMode `protobuf:"varint,2,opt,name=mode,proto3,enum=rdss.telemetry.v1.ScadaMode" json:"mode,omitempty"`
+	Mode ProtectionTerminalMode `protobuf:"varint,2,opt,name=mode,proto3,enum=rdss.telemetry.v1.ProtectionTerminalMode" json:"mode,omitempty"`
 	// Why the mode is being changed, for logging
 	Reason string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
 	// Client text identifier for logging and debugging
@@ -571,20 +571,20 @@ type ScadaSetModeRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ScadaSetModeRequest) Reset() {
-	*x = ScadaSetModeRequest{}
+func (x *ProtectionTerminalSetModeRequest) Reset() {
+	*x = ProtectionTerminalSetModeRequest{}
 	mi := &file_api_scada_telemetry_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ScadaSetModeRequest) String() string {
+func (x *ProtectionTerminalSetModeRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ScadaSetModeRequest) ProtoMessage() {}
+func (*ProtectionTerminalSetModeRequest) ProtoMessage() {}
 
-func (x *ScadaSetModeRequest) ProtoReflect() protoreflect.Message {
+func (x *ProtectionTerminalSetModeRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_api_scada_telemetry_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -596,60 +596,60 @@ func (x *ScadaSetModeRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ScadaSetModeRequest.ProtoReflect.Descriptor instead.
-func (*ScadaSetModeRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ProtectionTerminalSetModeRequest.ProtoReflect.Descriptor instead.
+func (*ProtectionTerminalSetModeRequest) Descriptor() ([]byte, []int) {
 	return file_api_scada_telemetry_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *ScadaSetModeRequest) GetKey() string {
+func (x *ProtectionTerminalSetModeRequest) GetKey() string {
 	if x != nil {
 		return x.Key
 	}
 	return ""
 }
 
-func (x *ScadaSetModeRequest) GetMode() ScadaMode {
+func (x *ProtectionTerminalSetModeRequest) GetMode() ProtectionTerminalMode {
 	if x != nil {
 		return x.Mode
 	}
-	return ScadaMode_MODE_UNKNOWN
+	return ProtectionTerminalMode_MODE_UNKNOWN
 }
 
-func (x *ScadaSetModeRequest) GetReason() string {
+func (x *ProtectionTerminalSetModeRequest) GetReason() string {
 	if x != nil {
 		return x.Reason
 	}
 	return ""
 }
 
-func (x *ScadaSetModeRequest) GetClientId() string {
+func (x *ProtectionTerminalSetModeRequest) GetClientId() string {
 	if x != nil {
 		return x.ClientId
 	}
 	return ""
 }
 
-type ScadaSetModeResponse struct {
+type ProtectionTerminalSetModeResponse struct {
 	state         protoimpl.MessageState        `protogen:"open.v1"`
 	Result        ScadaSupervisoryControlResult `protobuf:"varint,1,opt,name=result,proto3,enum=rdss.telemetry.v1.ScadaSupervisoryControlResult" json:"result,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ScadaSetModeResponse) Reset() {
-	*x = ScadaSetModeResponse{}
+func (x *ProtectionTerminalSetModeResponse) Reset() {
+	*x = ProtectionTerminalSetModeResponse{}
 	mi := &file_api_scada_telemetry_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ScadaSetModeResponse) String() string {
+func (x *ProtectionTerminalSetModeResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ScadaSetModeResponse) ProtoMessage() {}
+func (*ProtectionTerminalSetModeResponse) ProtoMessage() {}
 
-func (x *ScadaSetModeResponse) ProtoReflect() protoreflect.Message {
+func (x *ProtectionTerminalSetModeResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_api_scada_telemetry_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -661,12 +661,12 @@ func (x *ScadaSetModeResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ScadaSetModeResponse.ProtoReflect.Descriptor instead.
-func (*ScadaSetModeResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ProtectionTerminalSetModeResponse.ProtoReflect.Descriptor instead.
+func (*ProtectionTerminalSetModeResponse) Descriptor() ([]byte, []int) {
 	return file_api_scada_telemetry_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ScadaSetModeResponse) GetResult() ScadaSupervisoryControlResult {
+func (x *ProtectionTerminalSetModeResponse) GetResult() ScadaSupervisoryControlResult {
 	if x != nil {
 		return x.Result
 	}
@@ -696,13 +696,13 @@ const file_api_scada_telemetry_proto_rawDesc = "" +
 	"\x06select\x18\x03 \x01(\bR\x06select\x12\x18\n" +
 	"\aexecute\x18\x04 \x01(\bR\aexecute\x12\x12\n" +
 	"\x04test\x18\x05 \x01(\bR\x04test\x12\x1b\n" +
-	"\tclient_id\x18\x06 \x01(\tR\bclientId\"\x8e\x01\n" +
-	"\x13ScadaSetModeRequest\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
-	"\x04mode\x18\x02 \x01(\x0e2\x1c.rdss.telemetry.v1.ScadaModeR\x04mode\x12\x16\n" +
+	"\tclient_id\x18\x06 \x01(\tR\bclientId\"\xa8\x01\n" +
+	" ProtectionTerminalSetModeRequest\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12=\n" +
+	"\x04mode\x18\x02 \x01(\x0e2).rdss.telemetry.v1.ProtectionTerminalModeR\x04mode\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x1b\n" +
-	"\tclient_id\x18\x04 \x01(\tR\bclientId\"`\n" +
-	"\x14ScadaSetModeResponse\x12H\n" +
+	"\tclient_id\x18\x04 \x01(\tR\bclientId\"m\n" +
+	"!ProtectionTerminalSetModeResponse\x12H\n" +
 	"\x06result\x18\x01 \x01(\x0e20.rdss.telemetry.v1.ScadaSupervisoryControlResultR\x06result*A\n" +
 	"\rDataPointType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
@@ -724,17 +724,17 @@ const file_api_scada_telemetry_proto_rawDesc = "" +
 	"\x13ERROR_NOT_SUPPORTED\x10\x04\x12\x1d\n" +
 	"\x19ERROR_OBJECT_IS_NOT_FOUND\x10\x05\x12\x1b\n" +
 	"\x17ERROR_ITEM_IS_NOT_FOUND\x10\x06\x12\x16\n" +
-	"\x12ERROR_NOT_SELECTED\x10\a*Y\n" +
-	"\tScadaMode\x12\x10\n" +
+	"\x12ERROR_NOT_SELECTED\x10\a*f\n" +
+	"\x16ProtectionTerminalMode\x12\x10\n" +
 	"\fMODE_UNKNOWN\x10\x00\x12\v\n" +
 	"\aMODE_ON\x10\x01\x12\x10\n" +
 	"\fMODE_BLOCKED\x10\x02\x12\r\n" +
 	"\tMODE_TEST\x10\x03\x12\f\n" +
-	"\bMODE_OFF\x10\x052\xc4\x02\n" +
+	"\bMODE_OFF\x10\x052\xf1\x02\n" +
 	"\x0fTelemetryStream\x12X\n" +
 	"\tSubscribe\x12$.rdss.telemetry.v1.SubstationRequest\x1a#.rdss.telemetry.v1.SubstationUpdate0\x01\x12{\n" +
-	"\x12SupervisoryControl\x121.rdss.telemetry.v1.ScadaSupervisoryControlRequest\x1a2.rdss.telemetry.v1.ScadaSupervisoryControlResponse\x12Z\n" +
-	"\aSetMode\x12&.rdss.telemetry.v1.ScadaSetModeRequest\x1a'.rdss.telemetry.v1.ScadaSetModeResponseB\fZ\n" +
+	"\x12SupervisoryControl\x121.rdss.telemetry.v1.ScadaSupervisoryControlRequest\x1a2.rdss.telemetry.v1.ScadaSupervisoryControlResponse\x12\x86\x01\n" +
+	"\x19ProtectionTerminalSetMode\x123.rdss.telemetry.v1.ProtectionTerminalSetModeRequest\x1a4.rdss.telemetry.v1.ProtectionTerminalSetModeResponseB\fZ\n" +
 	"telemetry/b\x06proto3"
 
 var (
@@ -752,18 +752,18 @@ func file_api_scada_telemetry_proto_rawDescGZIP() []byte {
 var file_api_scada_telemetry_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_api_scada_telemetry_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_api_scada_telemetry_proto_goTypes = []any{
-	(DataPointType)(0),                      // 0: rdss.telemetry.v1.DataPointType
-	(DataPointQuality)(0),                   // 1: rdss.telemetry.v1.DataPointQuality
-	(ScadaSupervisoryControlResult)(0),      // 2: rdss.telemetry.v1.ScadaSupervisoryControlResult
-	(ScadaMode)(0),                          // 3: rdss.telemetry.v1.ScadaMode
-	(*SubstationRequest)(nil),               // 4: rdss.telemetry.v1.SubstationRequest
-	(*ScadaSupervisoryControlResponse)(nil), // 5: rdss.telemetry.v1.ScadaSupervisoryControlResponse
-	(*DataPoint)(nil),                       // 6: rdss.telemetry.v1.DataPoint
-	(*SubstationUpdate)(nil),                // 7: rdss.telemetry.v1.SubstationUpdate
-	(*ScadaSupervisoryControlRequest)(nil),  // 8: rdss.telemetry.v1.ScadaSupervisoryControlRequest
-	(*ScadaSetModeRequest)(nil),             // 9: rdss.telemetry.v1.ScadaSetModeRequest
-	(*ScadaSetModeResponse)(nil),            // 10: rdss.telemetry.v1.ScadaSetModeResponse
-	(*timestamppb.Timestamp)(nil),           // 11: google.protobuf.Timestamp
+	(DataPointType)(0),                        // 0: rdss.telemetry.v1.DataPointType
+	(DataPointQuality)(0),                     // 1: rdss.telemetry.v1.DataPointQuality
+	(ScadaSupervisoryControlResult)(0),        // 2: rdss.telemetry.v1.ScadaSupervisoryControlResult
+	(ProtectionTerminalMode)(0),               // 3: rdss.telemetry.v1.ProtectionTerminalMode
+	(*SubstationRequest)(nil),                 // 4: rdss.telemetry.v1.SubstationRequest
+	(*ScadaSupervisoryControlResponse)(nil),   // 5: rdss.telemetry.v1.ScadaSupervisoryControlResponse
+	(*DataPoint)(nil),                         // 6: rdss.telemetry.v1.DataPoint
+	(*SubstationUpdate)(nil),                  // 7: rdss.telemetry.v1.SubstationUpdate
+	(*ScadaSupervisoryControlRequest)(nil),    // 8: rdss.telemetry.v1.ScadaSupervisoryControlRequest
+	(*ProtectionTerminalSetModeRequest)(nil),  // 9: rdss.telemetry.v1.ProtectionTerminalSetModeRequest
+	(*ProtectionTerminalSetModeResponse)(nil), // 10: rdss.telemetry.v1.ProtectionTerminalSetModeResponse
+	(*timestamppb.Timestamp)(nil),             // 11: google.protobuf.Timestamp
 }
 var file_api_scada_telemetry_proto_depIdxs = []int32{
 	2,  // 0: rdss.telemetry.v1.ScadaSupervisoryControlResponse.result:type_name -> rdss.telemetry.v1.ScadaSupervisoryControlResult
@@ -771,14 +771,14 @@ var file_api_scada_telemetry_proto_depIdxs = []int32{
 	1,  // 2: rdss.telemetry.v1.DataPoint.quality:type_name -> rdss.telemetry.v1.DataPointQuality
 	11, // 3: rdss.telemetry.v1.DataPoint.timestamp:type_name -> google.protobuf.Timestamp
 	6,  // 4: rdss.telemetry.v1.SubstationUpdate.points:type_name -> rdss.telemetry.v1.DataPoint
-	3,  // 5: rdss.telemetry.v1.ScadaSetModeRequest.mode:type_name -> rdss.telemetry.v1.ScadaMode
-	2,  // 6: rdss.telemetry.v1.ScadaSetModeResponse.result:type_name -> rdss.telemetry.v1.ScadaSupervisoryControlResult
+	3,  // 5: rdss.telemetry.v1.ProtectionTerminalSetModeRequest.mode:type_name -> rdss.telemetry.v1.ProtectionTerminalMode
+	2,  // 6: rdss.telemetry.v1.ProtectionTerminalSetModeResponse.result:type_name -> rdss.telemetry.v1.ScadaSupervisoryControlResult
 	4,  // 7: rdss.telemetry.v1.TelemetryStream.Subscribe:input_type -> rdss.telemetry.v1.SubstationRequest
 	8,  // 8: rdss.telemetry.v1.TelemetryStream.SupervisoryControl:input_type -> rdss.telemetry.v1.ScadaSupervisoryControlRequest
-	9,  // 9: rdss.telemetry.v1.TelemetryStream.SetMode:input_type -> rdss.telemetry.v1.ScadaSetModeRequest
+	9,  // 9: rdss.telemetry.v1.TelemetryStream.ProtectionTerminalSetMode:input_type -> rdss.telemetry.v1.ProtectionTerminalSetModeRequest
 	7,  // 10: rdss.telemetry.v1.TelemetryStream.Subscribe:output_type -> rdss.telemetry.v1.SubstationUpdate
 	5,  // 11: rdss.telemetry.v1.TelemetryStream.SupervisoryControl:output_type -> rdss.telemetry.v1.ScadaSupervisoryControlResponse
-	10, // 12: rdss.telemetry.v1.TelemetryStream.SetMode:output_type -> rdss.telemetry.v1.ScadaSetModeResponse
+	10, // 12: rdss.telemetry.v1.TelemetryStream.ProtectionTerminalSetMode:output_type -> rdss.telemetry.v1.ProtectionTerminalSetModeResponse
 	10, // [10:13] is the sub-list for method output_type
 	7,  // [7:10] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name

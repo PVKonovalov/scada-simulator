@@ -315,8 +315,8 @@ func TestSetMode_BlockedThenOn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resp, err := client.SetMode(ctx, &telemetry.ScadaSetModeRequest{
-		Key: "test.mode", Mode: telemetry.ScadaMode_MODE_BLOCKED, Reason: "maintenance", ClientId: "unit-test",
+	resp, err := client.ProtectionTerminalSetMode(ctx, &telemetry.ProtectionTerminalSetModeRequest{
+		Key: "test.mode", Mode: telemetry.ProtectionTerminalMode_MODE_BLOCKED, Reason: "maintenance", ClientId: "unit-test",
 	})
 	if err != nil {
 		t.Fatalf("SetMode(Blocked): %v", err)
@@ -335,8 +335,8 @@ func TestSetMode_BlockedThenOn(t *testing.T) {
 		t.Fatalf("SupervisoryControl result = %v, want ERROR_BLOCKED", ctrl.GetResult())
 	}
 
-	resp, err = client.SetMode(ctx, &telemetry.ScadaSetModeRequest{
-		Key: "test.mode", Mode: telemetry.ScadaMode_MODE_ON, ClientId: "unit-test",
+	resp, err = client.ProtectionTerminalSetMode(ctx, &telemetry.ProtectionTerminalSetModeRequest{
+		Key: "test.mode", Mode: telemetry.ProtectionTerminalMode_MODE_ON, ClientId: "unit-test",
 	})
 	if err != nil {
 		t.Fatalf("SetMode(On): %v", err)
@@ -375,8 +375,8 @@ func TestSetMode_PushesModeTag(t *testing.T) {
 		t.Fatalf("Recv (snapshot): %v", err)
 	}
 
-	resp, err := client.SetMode(ctx, &telemetry.ScadaSetModeRequest{
-		Key: "test.mode", Mode: telemetry.ScadaMode_MODE_BLOCKED, Reason: "maintenance", ClientId: "unit-test",
+	resp, err := client.ProtectionTerminalSetMode(ctx, &telemetry.ProtectionTerminalSetModeRequest{
+		Key: "test.mode", Mode: telemetry.ProtectionTerminalMode_MODE_BLOCKED, Reason: "maintenance", ClientId: "unit-test",
 	})
 	if err != nil {
 		t.Fatalf("SetMode: %v", err)
@@ -409,29 +409,29 @@ func TestSetMode_Errors(t *testing.T) {
 
 	tests := []struct {
 		name string
-		req  *telemetry.ScadaSetModeRequest
+		req  *telemetry.ProtectionTerminalSetModeRequest
 		want telemetry.ScadaSupervisoryControlResult
 	}{
 		{
 			name: "unknown tag suffix",
-			req:  &telemetry.ScadaSetModeRequest{Key: "test.control", Mode: telemetry.ScadaMode_MODE_BLOCKED},
+			req:  &telemetry.ProtectionTerminalSetModeRequest{Key: "test.control", Mode: telemetry.ProtectionTerminalMode_MODE_BLOCKED},
 			want: telemetry.ScadaSupervisoryControlResult_ERROR_ITEM_IS_NOT_FOUND,
 		},
 		{
 			name: "unknown breaker",
-			req:  &telemetry.ScadaSetModeRequest{Key: "no-such-breaker.mode", Mode: telemetry.ScadaMode_MODE_BLOCKED},
+			req:  &telemetry.ProtectionTerminalSetModeRequest{Key: "no-such-breaker.mode", Mode: telemetry.ProtectionTerminalMode_MODE_BLOCKED},
 			want: telemetry.ScadaSupervisoryControlResult_ERROR_OBJECT_IS_NOT_FOUND,
 		},
 		{
 			name: "unsupported mode (TEST/BLOCKED, not modelled)",
-			req:  &telemetry.ScadaSetModeRequest{Key: "test.mode", Mode: 4},
+			req:  &telemetry.ProtectionTerminalSetModeRequest{Key: "test.mode", Mode: 4},
 			want: telemetry.ScadaSupervisoryControlResult_ERROR_NOT_SUPPORTED,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := client.SetMode(ctx, tt.req)
+			resp, err := client.ProtectionTerminalSetMode(ctx, tt.req)
 			if err != nil {
 				t.Fatalf("SetMode: %v", err)
 			}

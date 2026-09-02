@@ -240,7 +240,7 @@ func breakerSnapshot(name string, sim *breaker.Simulator, testMode bool) []*tele
 
 	points := []*telemetry.DataPoint{
 		intPoint(name+".position", int(pos), posQuality, now),
-		diPoint(name+".mode", int(sim.Mode()), posQuality, now),
+		intPoint(name+".mode", int(sim.Mode()), posQuality, now),
 	}
 	points = append(points, measurementPoints(name, sim.Measurement(), testMode)...)
 	points = append(points, statusPoints(name, sim, now, testMode)...)
@@ -266,7 +266,7 @@ func dataPointsForEvent(name string, sim *breaker.Simulator, ev breaker.Event, t
 	case breaker.ModeChangedDetail:
 		_, quality := sim.Position()
 		quality = applyTestMode(quality, testMode)
-		return []*telemetry.DataPoint{diPoint(name+".mode", int(d.Mode), quality, ev.Timestamp)}
+		return []*telemetry.DataPoint{intPoint(name+".mode", int(d.Mode), quality, ev.Timestamp)}
 	default:
 		// EventProtectionPickedUp/Trip/AutoRecloseAttempt/Lockout/
 		// SettingsChanged: rather than hand-decode each Detail type, just
@@ -325,10 +325,12 @@ func floatPoint(key string, value float64, quality qds.Quality, ts time.Time) *t
 	}
 }
 
-// intPoint builds an INTEGER (2-bit) DataPoint. Reserved for "<name>.position",
-// the only tag with true double-point semantics (four states: Intermediate/
-// Open/Closed/Bad, mirroring a real breaker's 52a/52b auxiliary contacts);
-// every other discrete/status tag uses diPoint instead (see its comment).
+// intPoint builds an INTEGER DataPoint: "<name>.position" (2-bit double-point,
+// four states — Intermediate/Open/Closed/Bad, mirroring a real breaker's
+// 52a/52b auxiliary contacts) and "<name>.mode" (breaker.Mode's five values,
+// which don't fit a 1-bit boolean/DI) are this simulator's only tags typed
+// this way; every other discrete/status tag uses diPoint instead (see its
+// comment).
 func intPoint(key string, value int, quality qds.Quality, ts time.Time) *telemetry.DataPoint {
 	return &telemetry.DataPoint{
 		Key:       key,
@@ -343,9 +345,9 @@ func intPoint(key string, value int, quality qds.Quality, ts time.Time) *telemet
 // (1 bit) like boolPoint, but carrying a numeric value rather than
 // true/false — for a multi-valued status (protection/autoreclose state,
 // active settings group, reclose attempt count) that this simulator still
-// classifies as ordinary 1-bit DI rather than double-point position's
-// 2-bit "integer" (see intPoint's comment and pkg/breaker/README.md's
-// "SCADA tag naming" section).
+// classifies as ordinary 1-bit DI rather than an "integer" tag (see
+// intPoint's comment and pkg/breaker/README.md's "SCADA tag naming"
+// section).
 func diPoint(key string, value int, quality qds.Quality, ts time.Time) *telemetry.DataPoint {
 	return &telemetry.DataPoint{
 		Key:       key,

@@ -32,8 +32,7 @@ service TelemetryStream {
   // Sets a breaker's IEC 61850 Mod-style operating mode (On/Blocked/Test/
   // Off), controlling whether it accepts control commands and whether its
   // protection function drives real physical output.
-  rpc SetMode(ScadaSetModeRequest) returns (ScadaSetModeResponse);
-
+  rpc ProtectionTerminalSetMode(ProtectionTerminalSetModeRequest) returns (ProtectionTerminalSetModeResponse);
 }
 
 message SubstationRequest {
@@ -104,10 +103,10 @@ message ScadaSupervisoryControlRequest {
   string client_id = 6;
 }
 
-// ScadaMode mirrors IEC 61850 Edition 1's Mod/Beh enumeration. TEST_BLOCKED
-// (4) is deliberately not modelled by this simulator, so values skip from
-// TEST (3) straight to OFF (5).
-enum ScadaMode {
+// ProtectionTerminalMode mirrors IEC 61850 Edition 1's Mod/Beh enumeration.
+// TEST_BLOCKED (4) is deliberately not modelled by this simulator, so
+// values skip from TEST (3) straight to OFF (5).
+enum ProtectionTerminalMode {
   MODE_UNKNOWN = 0;
   MODE_ON = 1;
   MODE_BLOCKED = 2;
@@ -115,17 +114,17 @@ enum ScadaMode {
   MODE_OFF = 5;
 }
 
-message ScadaSetModeRequest {
+message ProtectionTerminalSetModeRequest {
   // Point identifier, "<breaker-name>.mode"
   string key = 1;
   // The mode to set the breaker to
-  ScadaMode mode = 2;
+  ProtectionTerminalMode mode = 2;
   // Why the mode is being changed, for logging
   string reason = 3;
   // Client text identifier for logging and debugging
   string client_id = 4;
 }
 
-message ScadaSetModeResponse {
+message ProtectionTerminalSetModeResponse {
   ScadaSupervisoryControlResult result = 1;
 }

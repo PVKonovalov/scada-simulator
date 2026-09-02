@@ -112,8 +112,8 @@ func TestTelemetryServer_InitialSnapshot(t *testing.T) {
 	}
 
 	mode := points["test.mode"]
-	if mode.GetType() != telemetry.DataPointType_BOOLEAN || mode.GetValue() != float32(breaker.ModeOn) {
-		t.Errorf("test.mode = (%v, %v), want (BOOLEAN, %v)", mode.GetType(), mode.GetValue(), breaker.ModeOn)
+	if mode.GetType() != telemetry.DataPointType_INTEGER || mode.GetValue() != float32(breaker.ModeOn) {
+		t.Errorf("test.mode = (%v, %v), want (INTEGER, %v)", mode.GetType(), mode.GetValue(), breaker.ModeOn)
 	}
 }
 

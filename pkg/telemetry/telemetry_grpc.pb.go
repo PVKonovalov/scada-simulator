@@ -19,9 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	TelemetryStream_Subscribe_FullMethodName          = "/rdss.telemetry.v1.TelemetryStream/Subscribe"
-	TelemetryStream_SupervisoryControl_FullMethodName = "/rdss.telemetry.v1.TelemetryStream/SupervisoryControl"
-	TelemetryStream_SetMode_FullMethodName            = "/rdss.telemetry.v1.TelemetryStream/SetMode"
+	TelemetryStream_Subscribe_FullMethodName                 = "/rdss.telemetry.v1.TelemetryStream/Subscribe"
+	TelemetryStream_SupervisoryControl_FullMethodName        = "/rdss.telemetry.v1.TelemetryStream/SupervisoryControl"
+	TelemetryStream_ProtectionTerminalSetMode_FullMethodName = "/rdss.telemetry.v1.TelemetryStream/ProtectionTerminalSetMode"
 )
 
 // TelemetryStreamClient is the client API for TelemetryStream service.
@@ -34,7 +34,7 @@ type TelemetryStreamClient interface {
 	// Sets a breaker's IEC 61850 Mod-style operating mode (On/Blocked/Test/
 	// Off), controlling whether it accepts control commands and whether its
 	// protection function drives real physical output.
-	SetMode(ctx context.Context, in *ScadaSetModeRequest, opts ...grpc.CallOption) (*ScadaSetModeResponse, error)
+	ProtectionTerminalSetMode(ctx context.Context, in *ProtectionTerminalSetModeRequest, opts ...grpc.CallOption) (*ProtectionTerminalSetModeResponse, error)
 }
 
 type telemetryStreamClient struct {
@@ -74,10 +74,10 @@ func (c *telemetryStreamClient) SupervisoryControl(ctx context.Context, in *Scad
 	return out, nil
 }
 
-func (c *telemetryStreamClient) SetMode(ctx context.Context, in *ScadaSetModeRequest, opts ...grpc.CallOption) (*ScadaSetModeResponse, error) {
+func (c *telemetryStreamClient) ProtectionTerminalSetMode(ctx context.Context, in *ProtectionTerminalSetModeRequest, opts ...grpc.CallOption) (*ProtectionTerminalSetModeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ScadaSetModeResponse)
-	err := c.cc.Invoke(ctx, TelemetryStream_SetMode_FullMethodName, in, out, cOpts...)
+	out := new(ProtectionTerminalSetModeResponse)
+	err := c.cc.Invoke(ctx, TelemetryStream_ProtectionTerminalSetMode_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ type TelemetryStreamServer interface {
 	// Sets a breaker's IEC 61850 Mod-style operating mode (On/Blocked/Test/
 	// Off), controlling whether it accepts control commands and whether its
 	// protection function drives real physical output.
-	SetMode(context.Context, *ScadaSetModeRequest) (*ScadaSetModeResponse, error)
+	ProtectionTerminalSetMode(context.Context, *ProtectionTerminalSetModeRequest) (*ProtectionTerminalSetModeResponse, error)
 	mustEmbedUnimplementedTelemetryStreamServer()
 }
 
@@ -111,8 +111,8 @@ func (UnimplementedTelemetryStreamServer) Subscribe(*SubstationRequest, grpc.Ser
 func (UnimplementedTelemetryStreamServer) SupervisoryControl(context.Context, *ScadaSupervisoryControlRequest) (*ScadaSupervisoryControlResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SupervisoryControl not implemented")
 }
-func (UnimplementedTelemetryStreamServer) SetMode(context.Context, *ScadaSetModeRequest) (*ScadaSetModeResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetMode not implemented")
+func (UnimplementedTelemetryStreamServer) ProtectionTerminalSetMode(context.Context, *ProtectionTerminalSetModeRequest) (*ProtectionTerminalSetModeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ProtectionTerminalSetMode not implemented")
 }
 func (UnimplementedTelemetryStreamServer) mustEmbedUnimplementedTelemetryStreamServer() {}
 func (UnimplementedTelemetryStreamServer) testEmbeddedByValue()                         {}
@@ -164,20 +164,20 @@ func _TelemetryStream_SupervisoryControl_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TelemetryStream_SetMode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ScadaSetModeRequest)
+func _TelemetryStream_ProtectionTerminalSetMode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProtectionTerminalSetModeRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TelemetryStreamServer).SetMode(ctx, in)
+		return srv.(TelemetryStreamServer).ProtectionTerminalSetMode(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: TelemetryStream_SetMode_FullMethodName,
+		FullMethod: TelemetryStream_ProtectionTerminalSetMode_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TelemetryStreamServer).SetMode(ctx, req.(*ScadaSetModeRequest))
+		return srv.(TelemetryStreamServer).ProtectionTerminalSetMode(ctx, req.(*ProtectionTerminalSetModeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -194,8 +194,8 @@ var TelemetryStream_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TelemetryStream_SupervisoryControl_Handler,
 		},
 		{
-			MethodName: "SetMode",
-			Handler:    _TelemetryStream_SetMode_Handler,
+			MethodName: "ProtectionTerminalSetMode",
+			Handler:    _TelemetryStream_ProtectionTerminalSetMode_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

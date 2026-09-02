@@ -63,7 +63,7 @@ func TestServer_Tags_ListsEveryBreakersTags(t *testing.T) {
 
 	wantTypes := map[string]string{
 		"feeder-1.position":            "integer",
-		"feeder-1.mode":                "boolean",
+		"feeder-1.mode":                "integer",
 		"feeder-1.current.a":           "float",
 		"feeder-1.power.reactive":      "float",
 		"feeder-1.frequency":           "float",

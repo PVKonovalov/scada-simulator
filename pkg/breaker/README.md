@@ -93,7 +93,7 @@ across multiple emulated breakers.
 | Tag | Source | Values | SCADA type |
 |---|---|---|---|
 | `<name>.position` | `Position()` (read-only) | `Intermediate` / `Open` / `Closed` / `Bad` | integer (2-bit DPI) |
-| `<name>.mode` | `Mode()` | `On` (1) / `Blocked` (2) / `Test` (3) / `Off` (5) | boolean (1-bit DI) |
+| `<name>.mode` | `Mode()` | `On` (1) / `Blocked` (2) / `Test` (3) / `Off` (5) | integer |
 | `<name>.control` | *(control-only — see below; listed by `GET /api/external/telemetry/tags`, but never read via Subscribe)* | `0` = Open, `1` = Close | boolean (1-bit DI) |
 | `<name>.current.a` / `.current.b` / `.current.c` | `Measurement()` | amps | float |
 | `<name>.voltage.a` / `.voltage.b` / `.voltage.c` | `Measurement()` | volts | float |
@@ -104,14 +104,15 @@ across multiple emulated breakers.
 | `<name>.autoreclose.state` | `AutoRecloseStatus()` | `Ready` / `DeadTime` / `Closing` / `Reclaim` / `Lockout` | boolean (1-bit DI) |
 | `<name>.autoreclose.attempt` | `AutoRecloseStatus()` | 0, 1, 2, … | boolean (1-bit DI) |
 
-`<name>.position` is the only tag reported as a 2-bit integer: it is this
-package's one point with true double-point semantics (four states,
-mirroring a real breaker's 52a/52b auxiliary contacts). Every other
-non-analog tag — even one carrying more than two possible values, like
-`protection.state` or `autoreclose.attempt` — is reported as an ordinary
-1-bit `boolean` DataPoint instead, still carrying its real numeric `Value`
-(`internal/telemetryserver`'s `diPoint`, as opposed to `intPoint`, reserved
-for `position`).
+`<name>.position` and `<name>.mode` are the only tags reported as `integer`:
+`position` is this package's one point with true double-point semantics
+(four states, mirroring a real breaker's 52a/52b auxiliary contacts), and
+`mode` carries `Mode`'s five enumerated values (0/1/2/3/5), which don't fit
+a 1-bit boolean/DI either. Every other non-analog tag — even one carrying
+more than two possible values, like `protection.state` or
+`autoreclose.attempt` — is reported as an ordinary 1-bit `boolean` DataPoint
+instead, still carrying its real numeric `Value` (`internal/telemetryserver`'s
+`diPoint`, as opposed to `intPoint`, reserved for `position`/`mode`).
 
 `<name>.control` is deliberately a separate tag from `<name>.position`: in
 `api/scada/telemetry.proto`'s `ScadaSupervisoryControlRequest`, `key`
@@ -134,9 +135,9 @@ from `<name>.mode`'s persistent `BreakerController.SetMode` above — the two
 mechanisms are independent and can both mark `qds.QdsTest` at once.
 
 `<name>.mode` is also the key `api/scada/telemetry.proto`'s
-`ScadaSetModeRequest` accepts, mapping its `ScadaMode` enum onto
+`ProtectionTerminalSetModeRequest` accepts, mapping its `ProtectionTerminalMode` enum onto
 `BreakerController.SetMode` (`internal/telemetryserver/control.go`'s
-`SetMode`).
+`ProtectionTerminalSetMode`).
 
 ## Running the example
 

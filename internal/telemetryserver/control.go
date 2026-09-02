@@ -111,21 +111,21 @@ func (s *TelemetryServer) SupervisoryControl(ctx context.Context, req *telemetry
 	return controlResponse(result), nil
 }
 
-// SetMode implements telemetry.TelemetryStreamServer, changing a breaker's
-// IEC 61850 Mod-style operating mode.
+// ProtectionTerminalSetMode implements telemetry.TelemetryStreamServer,
+// changing a breaker's IEC 61850 Mod-style operating mode.
 //
 // Key must be "<breaker-name>.mode". Mode is mapped to breaker.Mode via
-// modeForProto (ERROR_NOT_SUPPORTED if it isn't one of ScadaMode's four
-// modelled values) and passed to BreakerController.SetMode along with
-// Reason. The resulting mode is enforced by SupervisoryControl
-// (ERROR_BLOCKED while Blocked or Off) and reflected on Subscribe via the
-// same "<name>.mode" tag, exactly as if SetMode had been called directly on
-// the Simulator.
+// modeForProto (ERROR_NOT_SUPPORTED if it isn't one of
+// ProtectionTerminalMode's four modelled values) and passed to
+// BreakerController.SetMode along with Reason. The resulting mode is
+// enforced by SupervisoryControl (ERROR_BLOCKED while Blocked or Off) and
+// reflected on Subscribe via the same "<name>.mode" tag, exactly as if
+// SetMode had been called directly on the Simulator.
 //
 // Every call is logged at Info level twice, matching SupervisoryControl:
 // the incoming request before validation, and the outcome right before
 // returning.
-func (s *TelemetryServer) SetMode(ctx context.Context, req *telemetry.ScadaSetModeRequest) (*telemetry.ScadaSetModeResponse, error) {
+func (s *TelemetryServer) ProtectionTerminalSetMode(ctx context.Context, req *telemetry.ProtectionTerminalSetModeRequest) (*telemetry.ProtectionTerminalSetModeResponse, error) {
 	s.logger.Infof("telemetry: set_mode %s mode=%s reason=%q client_id=%q",
 		req.GetKey(), req.GetMode(), req.GetReason(), req.GetClientId())
 
@@ -151,23 +151,23 @@ func (s *TelemetryServer) SetMode(ctx context.Context, req *telemetry.ScadaSetMo
 	return setModeResponse(result), nil
 }
 
-// setModeResponse wraps a result in a ScadaSetModeResponse.
-func setModeResponse(result telemetry.ScadaSupervisoryControlResult) *telemetry.ScadaSetModeResponse {
-	return &telemetry.ScadaSetModeResponse{Result: result}
+// setModeResponse wraps a result in a ProtectionTerminalSetModeResponse.
+func setModeResponse(result telemetry.ScadaSupervisoryControlResult) *telemetry.ProtectionTerminalSetModeResponse {
+	return &telemetry.ProtectionTerminalSetModeResponse{Result: result}
 }
 
-// modeForProto maps a ScadaMode to a breaker.Mode, reporting ok=false for
-// MODE_UNKNOWN or any value this simulator doesn't model (e.g. IEC 61850's
-// TEST/BLOCKED, 4).
-func modeForProto(m telemetry.ScadaMode) (breaker.Mode, bool) {
+// modeForProto maps a ProtectionTerminalMode to a breaker.Mode, reporting
+// ok=false for MODE_UNKNOWN or any value this simulator doesn't model (e.g.
+// IEC 61850's TEST/BLOCKED, 4).
+func modeForProto(m telemetry.ProtectionTerminalMode) (breaker.Mode, bool) {
 	switch m {
-	case telemetry.ScadaMode_MODE_ON:
+	case telemetry.ProtectionTerminalMode_MODE_ON:
 		return breaker.ModeOn, true
-	case telemetry.ScadaMode_MODE_BLOCKED:
+	case telemetry.ProtectionTerminalMode_MODE_BLOCKED:
 		return breaker.ModeBlocked, true
-	case telemetry.ScadaMode_MODE_TEST:
+	case telemetry.ProtectionTerminalMode_MODE_TEST:
 		return breaker.ModeTest, true
-	case telemetry.ScadaMode_MODE_OFF:
+	case telemetry.ProtectionTerminalMode_MODE_OFF:
 		return breaker.ModeOff, true
 	default:
 		return 0, false
