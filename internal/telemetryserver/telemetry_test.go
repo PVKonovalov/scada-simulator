@@ -89,7 +89,7 @@ func TestTelemetryServer_InitialSnapshot(t *testing.T) {
 	points := dataPointMap(t, update)
 
 	wantKeys := []string{
-		"test.position", "test.blocked",
+		"test.position", "test.mode",
 		"test.current.a", "test.current.b", "test.current.c",
 		"test.voltage.a", "test.voltage.b", "test.voltage.c",
 		"test.power.active", "test.power.reactive", "test.power.apparent",
@@ -111,9 +111,9 @@ func TestTelemetryServer_InitialSnapshot(t *testing.T) {
 		t.Errorf("test.position value = %v, want %v (Closed)", pos.GetValue(), breaker.PositionClosed)
 	}
 
-	blocked := points["test.blocked"]
-	if blocked.GetType() != telemetry.DataPointType_BOOLEAN || blocked.GetValue() != 0 {
-		t.Errorf("test.blocked = (%v, %v), want (BOOLEAN, 0)", blocked.GetType(), blocked.GetValue())
+	mode := points["test.mode"]
+	if mode.GetType() != telemetry.DataPointType_BOOLEAN || mode.GetValue() != float32(breaker.ModeOn) {
+		t.Errorf("test.mode = (%v, %v), want (BOOLEAN, %v)", mode.GetType(), mode.GetValue(), breaker.ModeOn)
 	}
 }
 
@@ -186,16 +186,16 @@ func TestTelemetryServer_PositionUpdate(t *testing.T) {
 
 	// The mechanism passes through Intermediate before settling Open;
 	// keep reading updates until position finally reports Open. None of
-	// these updates should carry test.blocked: an ordinary position change
-	// is not a blocked-state change (see dataPointsForEvent's comment).
+	// these updates should carry test.mode: an ordinary position change is
+	// not a mode change (see dataPointsForEvent's comment).
 	for {
 		update, err := stream.Recv()
 		if err != nil {
 			t.Fatalf("Recv: %v", err)
 		}
 		points := dataPointMap(t, update)
-		if _, ok := points["test.blocked"]; ok {
-			t.Errorf("update carries test.blocked during an ordinary position change: %+v", update)
+		if _, ok := points["test.mode"]; ok {
+			t.Errorf("update carries test.mode during an ordinary position change: %+v", update)
 		}
 		pos, ok := points["test.position"]
 		if !ok {
@@ -207,9 +207,9 @@ func TestTelemetryServer_PositionUpdate(t *testing.T) {
 	}
 }
 
-// TestTelemetryServer_BlockPushesBlockedTag checks that Block/Unblock push
-// a test.blocked update on their own, independent of any position change.
-func TestTelemetryServer_BlockPushesBlockedTag(t *testing.T) {
+// TestTelemetryServer_SetModePushesModeTag checks that SetMode pushes a
+// test.mode update on its own, independent of any position change.
+func TestTelemetryServer_SetModePushesModeTag(t *testing.T) {
 	client, sim, cleanup := startTestServer(t)
 	defer cleanup()
 
@@ -224,26 +224,26 @@ func TestTelemetryServer_BlockPushesBlockedTag(t *testing.T) {
 		t.Fatalf("Recv (snapshot): %v", err)
 	}
 
-	if err := sim.Block(ctx, "maintenance"); err != nil {
-		t.Fatalf("Block: %v", err)
+	if err := sim.SetMode(ctx, breaker.ModeBlocked, "maintenance"); err != nil {
+		t.Fatalf("SetMode(Blocked): %v", err)
 	}
-	blocked := waitForBlockedUpdate(t, stream)
-	if blocked.GetValue() != 1 {
-		t.Errorf("test.blocked after Block = %v, want 1", blocked.GetValue())
+	blocked := waitForModeUpdate(t, stream)
+	if blocked.GetValue() != float32(breaker.ModeBlocked) {
+		t.Errorf("test.mode after SetMode(Blocked) = %v, want %v", blocked.GetValue(), breaker.ModeBlocked)
 	}
 
-	if err := sim.Unblock(ctx); err != nil {
-		t.Fatalf("Unblock: %v", err)
+	if err := sim.SetMode(ctx, breaker.ModeOn, ""); err != nil {
+		t.Fatalf("SetMode(On): %v", err)
 	}
-	unblocked := waitForBlockedUpdate(t, stream)
-	if unblocked.GetValue() != 0 {
-		t.Errorf("test.blocked after Unblock = %v, want 0", unblocked.GetValue())
+	on := waitForModeUpdate(t, stream)
+	if on.GetValue() != float32(breaker.ModeOn) {
+		t.Errorf("test.mode after SetMode(On) = %v, want %v", on.GetValue(), breaker.ModeOn)
 	}
 }
 
-// waitForBlockedUpdate reads updates from stream until one carries
-// test.blocked, failing the test if the stream ends first.
-func waitForBlockedUpdate(t *testing.T, stream telemetry.TelemetryStream_SubscribeClient) *telemetry.DataPoint {
+// waitForModeUpdate reads updates from stream until one carries test.mode,
+// failing the test if the stream ends first.
+func waitForModeUpdate(t *testing.T, stream telemetry.TelemetryStream_SubscribeClient) *telemetry.DataPoint {
 	t.Helper()
 	for {
 		update, err := stream.Recv()
@@ -251,7 +251,7 @@ func waitForBlockedUpdate(t *testing.T, stream telemetry.TelemetryStream_Subscri
 			t.Fatalf("Recv: %v", err)
 		}
 		points := dataPointMap(t, update)
-		if p, ok := points["test.blocked"]; ok {
+		if p, ok := points["test.mode"]; ok {
 			return p
 		}
 	}

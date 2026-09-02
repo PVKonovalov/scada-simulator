@@ -52,12 +52,12 @@ type simState struct {
 	name string // this breaker's name, used to prefix log messages
 
 	position    Position    // current breaker position
-	posQuality  qds.Quality // quality attached to position; kept in sync with blocked via qds.QdsBlocked
+	posQuality  qds.Quality // quality attached to position; kept in sync with mode via qds.QdsBlocked/qds.QdsTest
 	measurement Measurement // most recently injected measurement
 	lastEvalAt  time.Time   // wall-clock time of the previous InjectMeasurement, for stage-51 integration
 
-	blocked     bool   // true when Block has been called and Unblock has not yet cleared it; the source of truth behind qds.QdsBlocked on posQuality
-	blockReason string // reason passed to Block, surfaced on any control command rejected while blocked
+	mode       Mode   // current IEC 61850 Mod-style operating mode; the source of truth behind qds.QdsBlocked/qds.QdsTest on posQuality
+	modeReason string // reason passed to SetMode, surfaced on any control command rejected while Blocked or Off
 
 	settings    [NumSettingsGroups]ProtectionSettings // stored protection settings, one per group
 	activeGroup SettingsGroup                         // currently active settings group
@@ -121,6 +121,7 @@ func New(ctx context.Context, cfg Config) *Simulator {
 		name:              cfg.Name,
 		position:          cfg.InitialPosition,
 		posQuality:        qds.QdsGood,
+		mode:              ModeOn,
 		settings:          settings,
 		activeGroup:       cfg.ActiveSettingsGroup,
 		protectionState:   ProtectionNormal,
@@ -296,6 +297,13 @@ func (s *Simulator) Measurement() Measurement {
 	return m
 }
 
+// Mode implements PositionReader.
+func (s *Simulator) Mode() Mode {
+	var mode Mode
+	s.do(func(st *simState) { mode = st.mode })
+	return mode
+}
+
 // ProtectionStatus implements ProtectionStatusReader.
 func (s *Simulator) ProtectionStatus() ProtectionStatus {
 	var ps ProtectionStatus
@@ -396,9 +404,13 @@ func (s *Simulator) InjectMeasurement(m Measurement) error {
 // time-overcurrent (51) stage's operate timer is integrated using the
 // elapsed wall-clock time since the previous injected measurement — the
 // same "percent of operate time consumed" model real numerical relays use,
-// which needs no background timer of its own.
+// which needs no background timer of its own. Skipped entirely when Mode is
+// Off: the function is not active, so it neither evaluates nor reports.
 func (s *Simulator) evaluateProtection(st *simState, m Measurement) {
 	st.measurement = m
+	if st.mode == ModeOff {
+		return
+	}
 	s.emit(st, EventMeasurementChanged, m)
 
 	now := time.Now()
@@ -480,12 +492,19 @@ func (s *Simulator) evaluateTimeOvercurrent(st *simState, settings ProtectionSet
 
 // trip issues a protection trip: it emits EventTrip, opens the breaker (if
 // not already open) and, once the breaker is confirmed open, hands off to
-// onBreakerOpen to consider an autoreclose attempt.
+// onBreakerOpen to consider an autoreclose attempt. While Mode is Blocked,
+// the protection decision above still stands (protectionState, EventTrip)
+// but no physical output is driven — the breaker contact does not move —
+// per Mode's documented Blocked semantics.
 func (s *Simulator) trip(st *simState, cause ProtectionCause, current float64, operateTime time.Duration) {
 	st.protectionState = ProtectionTripped
 	st.stage51Progress = 0
 	st.instArmed = false
 	s.emit(st, EventTrip, TripDetail{Cause: cause, Current: current, OperateTime: operateTime})
+
+	if st.mode == ModeBlocked {
+		return
+	}
 
 	if st.position != PositionOpen {
 		s.beginOperate(st, PositionOpen, false)
@@ -582,8 +601,8 @@ func (s *Simulator) doSelect(st *simState, cmd Command) (SelectionID, error) {
 	if cmd.Target != PositionOpen && cmd.Target != PositionClosed {
 		return "", ErrInvalidCommand
 	}
-	if st.blocked {
-		return "", s.rejectControl(st, cmd, "breaker is blocked: "+st.blockReason)
+	if st.mode == ModeBlocked || st.mode == ModeOff {
+		return "", s.rejectControl(st, cmd, "breaker mode is "+st.mode.String()+": "+st.modeReason)
 	}
 	if len(st.selections) > 0 {
 		return "", s.rejectControl(st, cmd, "a selection is already in progress")
@@ -644,10 +663,10 @@ func (s *Simulator) doOperate(st *simState, id SelectionID, cmd Command) error {
 	if cmd.Target != sel.cmd.Target {
 		return ErrInvalidCommand
 	}
-	if st.blocked {
-		// Leave the selection intact: it remains usable if Unblock is
-		// called before it times out.
-		return s.rejectControl(st, cmd, "breaker is blocked: "+st.blockReason)
+	if st.mode == ModeBlocked || st.mode == ModeOff {
+		// Leave the selection intact: it remains usable if SetMode returns
+		// the breaker to On before it times out.
+		return s.rejectControl(st, cmd, "breaker mode is "+st.mode.String()+": "+st.modeReason)
 	}
 	delete(st.selections, id)
 
@@ -707,24 +726,23 @@ func (s *Simulator) ResetLockout(ctx context.Context) error {
 	return opErr
 }
 
-// Block implements BreakerController.
-func (s *Simulator) Block(ctx context.Context, reason string) error {
+// SetMode implements BreakerController.
+func (s *Simulator) SetMode(ctx context.Context, mode Mode, reason string) error {
 	return s.doCtx(ctx, func(st *simState) {
-		st.blocked = true
-		st.blockReason = reason
-		st.posQuality.Set(qds.QdsBlocked)
-		s.emit(st, EventControlBlocked, ControlBlockedDetail{Reason: reason})
-		s.emit(st, EventPositionChanged, PositionChangedDetail{Position: st.position, Quality: st.posQuality})
-	})
-}
-
-// Unblock implements BreakerController.
-func (s *Simulator) Unblock(ctx context.Context) error {
-	return s.doCtx(ctx, func(st *simState) {
-		st.blocked = false
-		st.blockReason = ""
-		st.posQuality.Clear(qds.QdsBlocked)
-		s.emit(st, EventControlUnblocked, ControlUnblockedDetail{})
+		st.mode = mode
+		st.modeReason = reason
+		switch mode {
+		case ModeBlocked, ModeOff:
+			st.posQuality.Clear(qds.QdsTest)
+			st.posQuality.Set(qds.QdsBlocked)
+		case ModeTest:
+			st.posQuality.Clear(qds.QdsBlocked)
+			st.posQuality.Set(qds.QdsTest)
+		default: // ModeOn
+			st.posQuality.Clear(qds.QdsBlocked)
+			st.posQuality.Clear(qds.QdsTest)
+		}
+		s.emit(st, EventModeChanged, ModeChangedDetail{Mode: mode, Reason: reason})
 		s.emit(st, EventPositionChanged, PositionChangedDetail{Position: st.position, Quality: st.posQuality})
 	})
 }

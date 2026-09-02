@@ -10,6 +10,8 @@ import (
 type PositionReader interface {
 	// Position returns the breaker's current double-point position and its quality.
 	Position() (Position, qds.Quality)
+	// Mode returns the breaker's current IEC 61850 Mod-style operating mode.
+	Mode() Mode
 }
 
 // AnalogReader satisfies SCADA requirement 2: reading three-phase analog measurements.
@@ -59,14 +61,13 @@ type BreakerController interface {
 	// operator/SCADA action per ANSI 79 practice. It is an error to call
 	// this when the sequence is not in Lockout.
 	ResetLockout(ctx context.Context) error
-	// Block prevents Select and Operate from executing any control command
-	// until Unblock is called — e.g. an operator's maintenance block/tag.
-	// It is reflected as qds.QdsBlocked on the quality Position returns, so
-	// SCADA sees it on the same measurement it already polls. reason is
-	// recorded and surfaced on any control command rejected while blocked.
-	Block(ctx context.Context, reason string) error
-	// Unblock clears a block set by Block.
-	Unblock(ctx context.Context) error
+	// SetMode changes the breaker's IEC 61850 Mod-style operating mode — see
+	// Mode's constants for what each one does to control acceptance,
+	// protection tripping and reported quality. It is reflected in the
+	// quality Position returns (qds.QdsBlocked/qds.QdsTest), so SCADA sees
+	// it on the same measurement it already polls. reason is recorded and
+	// surfaced on any control command rejected while Blocked or Off.
+	SetMode(ctx context.Context, mode Mode, reason string) error
 }
 
 // ProtectionStatusReader satisfies SCADA requirement 6: observing

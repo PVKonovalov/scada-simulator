@@ -82,6 +82,47 @@ func (p *Position) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+// Mode reports a breaker's IEC 61850 Mod-style operating mode, per Edition
+// 1's Mod/Beh table: whether its protection/control function is active, and
+// if so, whether it drives real outputs (On/Test) or none (Blocked/Off).
+// Numeric values match that table directly; TEST/BLOCKED (4) is deliberately
+// not modelled by this simulator, so codes skip from 3 straight to 5.
+type Mode uint8
+
+const (
+	// ModeOn: function active, real outputs generated, control commands
+	// accepted — normal operation.
+	ModeOn Mode = 1
+	// ModeBlocked: function active — protection still evaluates and still
+	// reports a trip decision — but drives no physical output (a trip does
+	// not move the breaker), and rejects incoming control commands.
+	ModeBlocked Mode = 2
+	// ModeTest: function active and behaves exactly like On — the breaker
+	// really moves — except every tag it drives reports qds.QdsTest quality
+	// instead of Good.
+	ModeTest Mode = 3
+	// ModeOff: function not active at all — protection evaluation is
+	// skipped entirely and reports no updates, and control commands are
+	// rejected, same as Blocked.
+	ModeOff Mode = 5
+)
+
+// String returns a short human-readable name for the mode.
+func (m Mode) String() string {
+	switch m {
+	case ModeOn:
+		return "On"
+	case ModeBlocked:
+		return "Blocked"
+	case ModeTest:
+		return "Test"
+	case ModeOff:
+		return "Off"
+	default:
+		return "Unknown"
+	}
+}
+
 // PhaseValues holds a three-phase quantity, one value per phase.
 type PhaseValues struct {
 	A float64 // phase A value

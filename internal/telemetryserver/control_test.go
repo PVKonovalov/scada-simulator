@@ -242,8 +242,8 @@ func TestSupervisoryControl_Blocked(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := sim.Block(ctx, "maintenance"); err != nil {
-		t.Fatalf("Block: %v", err)
+	if err := sim.SetMode(ctx, breaker.ModeBlocked, "maintenance"); err != nil {
+		t.Fatalf("SetMode(Blocked): %v", err)
 	}
 
 	resp, err := client.SupervisoryControl(ctx, &telemetry.ScadaSupervisoryControlRequest{
@@ -302,6 +302,143 @@ func TestSupervisoryControl_IdempotentStillPushesConfirmation(t *testing.T) {
 	}
 	if pos.GetValue() != float32(breaker.PositionClosed) {
 		t.Errorf("test.position value = %v, want %v (Closed, unchanged)", pos.GetValue(), breaker.PositionClosed)
+	}
+}
+
+// TestSetMode_BlockedThenOn checks that SetMode(Blocked) makes
+// SupervisoryControl reject with ERROR_BLOCKED, and SetMode(On) clears it
+// again.
+func TestSetMode_BlockedThenOn(t *testing.T) {
+	client, sim, cleanup := startTestServer(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := client.SetMode(ctx, &telemetry.ScadaSetModeRequest{
+		Key: "test.mode", Mode: telemetry.ScadaMode_MODE_BLOCKED, Reason: "maintenance", ClientId: "unit-test",
+	})
+	if err != nil {
+		t.Fatalf("SetMode(Blocked): %v", err)
+	}
+	if resp.GetResult() != telemetry.ScadaSupervisoryControlResult_OK {
+		t.Fatalf("SetMode(Blocked) result = %v, want OK", resp.GetResult())
+	}
+
+	ctrl, err := client.SupervisoryControl(ctx, &telemetry.ScadaSupervisoryControlRequest{
+		Key: "test.control", Value: 0, Select: true, Execute: true, ClientId: "unit-test",
+	})
+	if err != nil {
+		t.Fatalf("SupervisoryControl: %v", err)
+	}
+	if ctrl.GetResult() != telemetry.ScadaSupervisoryControlResult_ERROR_BLOCKED {
+		t.Fatalf("SupervisoryControl result = %v, want ERROR_BLOCKED", ctrl.GetResult())
+	}
+
+	resp, err = client.SetMode(ctx, &telemetry.ScadaSetModeRequest{
+		Key: "test.mode", Mode: telemetry.ScadaMode_MODE_ON, ClientId: "unit-test",
+	})
+	if err != nil {
+		t.Fatalf("SetMode(On): %v", err)
+	}
+	if resp.GetResult() != telemetry.ScadaSupervisoryControlResult_OK {
+		t.Fatalf("SetMode(On) result = %v, want OK", resp.GetResult())
+	}
+
+	ctrl, err = client.SupervisoryControl(ctx, &telemetry.ScadaSupervisoryControlRequest{
+		Key: "test.control", Value: 0, Select: true, Execute: true, ClientId: "unit-test",
+	})
+	if err != nil {
+		t.Fatalf("SupervisoryControl: %v", err)
+	}
+	if ctrl.GetResult() != telemetry.ScadaSupervisoryControlResult_OK {
+		t.Fatalf("SupervisoryControl result = %v, want OK after SetMode(On)", ctrl.GetResult())
+	}
+	waitForPosition(t, sim, breaker.PositionOpen)
+}
+
+// TestSetMode_PushesModeTag checks that SetMode's mode change is visible to
+// Subscribe on the same "<name>.mode" tag SetMode already pushes when
+// called directly on the Simulator.
+func TestSetMode_PushesModeTag(t *testing.T) {
+	client, _, cleanup := startTestServer(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Subscribe(ctx, &telemetry.SubstationRequest{Id: "unused"})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	if _, err := stream.Recv(); err != nil { // discard initial snapshot
+		t.Fatalf("Recv (snapshot): %v", err)
+	}
+
+	resp, err := client.SetMode(ctx, &telemetry.ScadaSetModeRequest{
+		Key: "test.mode", Mode: telemetry.ScadaMode_MODE_BLOCKED, Reason: "maintenance", ClientId: "unit-test",
+	})
+	if err != nil {
+		t.Fatalf("SetMode: %v", err)
+	}
+	if resp.GetResult() != telemetry.ScadaSupervisoryControlResult_OK {
+		t.Fatalf("result = %v, want OK", resp.GetResult())
+	}
+
+	update, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv: %v", err)
+	}
+	points := dataPointMap(t, update)
+	mode, ok := points["test.mode"]
+	if !ok {
+		t.Fatalf("update missing test.mode: %+v", update)
+	}
+	if mode.GetValue() != float32(breaker.ModeBlocked) {
+		t.Errorf("test.mode value = %v, want %v (Blocked)", mode.GetValue(), breaker.ModeBlocked)
+	}
+}
+
+// TestSetMode_Errors checks the request-validation error paths.
+func TestSetMode_Errors(t *testing.T) {
+	client, _, cleanup := startTestServer(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tests := []struct {
+		name string
+		req  *telemetry.ScadaSetModeRequest
+		want telemetry.ScadaSupervisoryControlResult
+	}{
+		{
+			name: "unknown tag suffix",
+			req:  &telemetry.ScadaSetModeRequest{Key: "test.control", Mode: telemetry.ScadaMode_MODE_BLOCKED},
+			want: telemetry.ScadaSupervisoryControlResult_ERROR_ITEM_IS_NOT_FOUND,
+		},
+		{
+			name: "unknown breaker",
+			req:  &telemetry.ScadaSetModeRequest{Key: "no-such-breaker.mode", Mode: telemetry.ScadaMode_MODE_BLOCKED},
+			want: telemetry.ScadaSupervisoryControlResult_ERROR_OBJECT_IS_NOT_FOUND,
+		},
+		{
+			name: "unsupported mode (TEST/BLOCKED, not modelled)",
+			req:  &telemetry.ScadaSetModeRequest{Key: "test.mode", Mode: 4},
+			want: telemetry.ScadaSupervisoryControlResult_ERROR_NOT_SUPPORTED,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := client.SetMode(ctx, tt.req)
+			if err != nil {
+				t.Fatalf("SetMode: %v", err)
+			}
+			if resp.GetResult() != tt.want {
+				t.Errorf("result = %v, want %v", resp.GetResult(), tt.want)
+			}
+		})
 	}
 }
 

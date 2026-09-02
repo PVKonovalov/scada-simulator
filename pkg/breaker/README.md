@@ -21,7 +21,7 @@ non-goals.
 | 2 | Reading three-phase analog measurements    | `AnalogReader`              |
 | 3 | Reading/setting protection relay settings  | `ProtectionConfigurator`    |
 | 4 | Configuring automatic reclosing            | `AutoRecloseConfigurator`   |
-| 5 | Remote control (select-before-operate, block/unblock) | `BreakerController` |
+| 5 | Remote control (select-before-operate, mode management) | `BreakerController` |
 | 6 | Observing protection/autoreclose status    | `ProtectionStatusReader`    |
 | 7 | Feeding plant values into the simulation   | `EmulatorFeed`              |
 | — | Push-based notifications                   | `EventSubscriber`           |
@@ -32,13 +32,21 @@ injected measurements, control commands, protection evaluation and the
 autoreclose sequence through it, so the whole package is race-free without
 exposing a mutex.
 
-`BreakerController` also has `Block`/`Unblock`, e.g. for an operator's
-maintenance block/tag: while blocked, `Select` and `Operate` are rejected
-with `*InterlockError`. The blocked state is tracked internally
-(`simState.blocked`/`blockReason`) and reflected as `qds.QdsBlocked` on the
-quality `Position()` returns, so it rides on the same measurement SCADA
-already polls, rather than being a separate status only visible some other
-way.
+`BreakerController` also has `SetMode`, an IEC 61850 Edition 1 Mod-style
+operating mode (see `Mode`'s constants in [`types.go`](types.go)):
+
+| Mode | Value | Control commands | Protection trip | Reporting |
+|---|---|---|---|---|
+| `ModeOn` | 1 | accepted | drives real output | normal (`qds.QdsGood`) |
+| `ModeBlocked` | 2 | rejected (`*InterlockError`) | still evaluates and decides, but drives no physical output — the breaker contact does not move | normal, plus `qds.QdsBlocked` |
+| `ModeTest` | 3 | accepted, really operates | drives real output, exactly like `ModeOn` | every tag carries `qds.QdsTest` instead of Good |
+| `ModeOff` | 5 | rejected (`*InterlockError`) | not evaluated at all — `InjectMeasurement` still latches the reading but reports no event | `qds.QdsBlocked` |
+
+IEC 61850's TEST/BLOCKED (4) is deliberately not modelled — codes skip from
+3 to 5. The current mode is tracked internally (`simState.mode`/
+`modeReason`) and reflected as `qds.QdsBlocked`/`qds.QdsTest` on the quality
+`Position()` returns, so it rides on the same measurement SCADA already
+polls, rather than being a separate status only visible some other way.
 
 ## Protection
 
@@ -85,7 +93,7 @@ across multiple emulated breakers.
 | Tag | Source | Values | SCADA type |
 |---|---|---|---|
 | `<name>.position` | `Position()` (read-only) | `Intermediate` / `Open` / `Closed` / `Bad` | integer (2-bit DPI) |
-| `<name>.blocked` | `Position()`'s quality (`qds.QdsBlocked`) | boolean | boolean (1-bit DI) |
+| `<name>.mode` | `Mode()` | `On` (1) / `Blocked` (2) / `Test` (3) / `Off` (5) | boolean (1-bit DI) |
 | `<name>.control` | *(control-only — see below; listed by `GET /api/external/telemetry/tags`, but never read via Subscribe)* | `0` = Open, `1` = Close | boolean (1-bit DI) |
 | `<name>.current.a` / `.current.b` / `.current.c` | `Measurement()` | amps | float |
 | `<name>.voltage.a` / `.voltage.b` / `.voltage.c` | `Measurement()` | volts | float |
@@ -121,7 +129,14 @@ action is taken (`select` alone still only arms; `test` alone, with neither
 `select` nor `execute`, does nothing). Setting it puts the breaker into test
 mode: every tag this server reports for it via `Subscribe` carries
 `qds.QdsTest` quality until a later call explicitly sets `test` back to
-`false`, which clears it.
+`false`, which clears it. This is a distinct, request-scoped quality overlay
+from `<name>.mode`'s persistent `BreakerController.SetMode` above — the two
+mechanisms are independent and can both mark `qds.QdsTest` at once.
+
+`<name>.mode` is also the key `api/scada/telemetry.proto`'s
+`ScadaSetModeRequest` accepts, mapping its `ScadaMode` enum onto
+`BreakerController.SetMode` (`internal/telemetryserver/control.go`'s
+`SetMode`).
 
 ## Running the example
 

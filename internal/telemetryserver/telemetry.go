@@ -19,11 +19,11 @@ import (
 // liveEventKinds are the breaker.Event kinds forward listens for in order
 // to keep every connected client's stream current after its initial
 // snapshot. EventControlRejected is deliberately excluded: a rejected
-// command changes no tag. EventControlBlocked/EventControlUnblocked are the
-// only source of "<name>.blocked" updates (see dataPointsForEvent) —
-// Block/Unblock also emit EventPositionChanged, but that alone must not
-// push ".blocked" too, or every ordinary position change (which also
-// carries a Quality) would resend an unchanged ".blocked" value.
+// command changes no tag. EventModeChanged is the only source of
+// "<name>.mode" updates (see dataPointsForEvent) — SetMode also emits
+// EventPositionChanged, but that alone must not push ".mode" too, or every
+// ordinary position change (which also carries a Quality) would resend an
+// unchanged ".mode" value.
 var liveEventKinds = []breaker.EventKind{
 	breaker.EventPositionChanged,
 	breaker.EventMeasurementChanged,
@@ -32,8 +32,7 @@ var liveEventKinds = []breaker.EventKind{
 	breaker.EventAutoRecloseAttempt,
 	breaker.EventLockout,
 	breaker.EventSettingsChanged,
-	breaker.EventControlBlocked,
-	breaker.EventControlUnblocked,
+	breaker.EventModeChanged,
 }
 
 // clientBuffer is how many updates a connected client's own channel
@@ -241,7 +240,7 @@ func breakerSnapshot(name string, sim *breaker.Simulator, testMode bool) []*tele
 
 	points := []*telemetry.DataPoint{
 		intPoint(name+".position", int(pos), posQuality, now),
-		boolPoint(name+".blocked", posQuality.Has(qds.QdsBlocked), posQuality, now),
+		diPoint(name+".mode", int(sim.Mode()), posQuality, now),
 	}
 	points = append(points, measurementPoints(name, sim.Measurement(), testMode)...)
 	points = append(points, statusPoints(name, sim, now, testMode)...)
@@ -252,11 +251,10 @@ func breakerSnapshot(name string, sim *breaker.Simulator, testMode bool) []*tele
 // or nil if the event carries no tag update of its own. testMode marks
 // every tag qds.QdsTest when true — see applyTestMode. Note this only
 // refreshes "<name>.position" itself on a real position change —
-// "<name>.blocked" is refreshed solely by EventControlBlocked/
-// EventControlUnblocked (via sim.Position()'s quality, since neither
-// event's Detail carries one of its own), even though Block/Unblock also
-// emit EventPositionChanged: an ordinary position change is not a blocked-
-// state change, and must not resend an unchanged ".blocked" value.
+// "<name>.mode" is refreshed solely by EventModeChanged (via sim.Position()'s
+// quality, since it carries no quality of its own), even though SetMode
+// also emits EventPositionChanged: an ordinary position change is not a
+// mode change, and must not resend an unchanged ".mode" value.
 func dataPointsForEvent(name string, sim *breaker.Simulator, ev breaker.Event, testMode bool) []*telemetry.DataPoint {
 	switch d := ev.Detail.(type) {
 	case breaker.PositionChangedDetail:
@@ -265,10 +263,10 @@ func dataPointsForEvent(name string, sim *breaker.Simulator, ev breaker.Event, t
 		}
 	case breaker.Measurement:
 		return measurementPoints(name, d, testMode)
-	case breaker.ControlBlockedDetail, breaker.ControlUnblockedDetail:
+	case breaker.ModeChangedDetail:
 		_, quality := sim.Position()
 		quality = applyTestMode(quality, testMode)
-		return []*telemetry.DataPoint{boolPoint(name+".blocked", quality.Has(qds.QdsBlocked), quality, ev.Timestamp)}
+		return []*telemetry.DataPoint{diPoint(name+".mode", int(d.Mode), quality, ev.Timestamp)}
 	default:
 		// EventProtectionPickedUp/Trip/AutoRecloseAttempt/Lockout/
 		// SettingsChanged: rather than hand-decode each Detail type, just

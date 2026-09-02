@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	TelemetryStream_Subscribe_FullMethodName          = "/rdss.telemetry.v1.TelemetryStream/Subscribe"
 	TelemetryStream_SupervisoryControl_FullMethodName = "/rdss.telemetry.v1.TelemetryStream/SupervisoryControl"
+	TelemetryStream_SetMode_FullMethodName            = "/rdss.telemetry.v1.TelemetryStream/SetMode"
 )
 
 // TelemetryStreamClient is the client API for TelemetryStream service.
@@ -30,6 +31,10 @@ type TelemetryStreamClient interface {
 	Subscribe(ctx context.Context, in *SubstationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SubstationUpdate], error)
 	// Performs Supervisory Control for the specified tag.
 	SupervisoryControl(ctx context.Context, in *ScadaSupervisoryControlRequest, opts ...grpc.CallOption) (*ScadaSupervisoryControlResponse, error)
+	// Sets a breaker's IEC 61850 Mod-style operating mode (On/Blocked/Test/
+	// Off), controlling whether it accepts control commands and whether its
+	// protection function drives real physical output.
+	SetMode(ctx context.Context, in *ScadaSetModeRequest, opts ...grpc.CallOption) (*ScadaSetModeResponse, error)
 }
 
 type telemetryStreamClient struct {
@@ -69,6 +74,16 @@ func (c *telemetryStreamClient) SupervisoryControl(ctx context.Context, in *Scad
 	return out, nil
 }
 
+func (c *telemetryStreamClient) SetMode(ctx context.Context, in *ScadaSetModeRequest, opts ...grpc.CallOption) (*ScadaSetModeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ScadaSetModeResponse)
+	err := c.cc.Invoke(ctx, TelemetryStream_SetMode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TelemetryStreamServer is the server API for TelemetryStream service.
 // All implementations must embed UnimplementedTelemetryStreamServer
 // for forward compatibility.
@@ -76,6 +91,10 @@ type TelemetryStreamServer interface {
 	Subscribe(*SubstationRequest, grpc.ServerStreamingServer[SubstationUpdate]) error
 	// Performs Supervisory Control for the specified tag.
 	SupervisoryControl(context.Context, *ScadaSupervisoryControlRequest) (*ScadaSupervisoryControlResponse, error)
+	// Sets a breaker's IEC 61850 Mod-style operating mode (On/Blocked/Test/
+	// Off), controlling whether it accepts control commands and whether its
+	// protection function drives real physical output.
+	SetMode(context.Context, *ScadaSetModeRequest) (*ScadaSetModeResponse, error)
 	mustEmbedUnimplementedTelemetryStreamServer()
 }
 
@@ -91,6 +110,9 @@ func (UnimplementedTelemetryStreamServer) Subscribe(*SubstationRequest, grpc.Ser
 }
 func (UnimplementedTelemetryStreamServer) SupervisoryControl(context.Context, *ScadaSupervisoryControlRequest) (*ScadaSupervisoryControlResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SupervisoryControl not implemented")
+}
+func (UnimplementedTelemetryStreamServer) SetMode(context.Context, *ScadaSetModeRequest) (*ScadaSetModeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetMode not implemented")
 }
 func (UnimplementedTelemetryStreamServer) mustEmbedUnimplementedTelemetryStreamServer() {}
 func (UnimplementedTelemetryStreamServer) testEmbeddedByValue()                         {}
@@ -142,6 +164,24 @@ func _TelemetryStream_SupervisoryControl_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TelemetryStream_SetMode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ScadaSetModeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TelemetryStreamServer).SetMode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TelemetryStream_SetMode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TelemetryStreamServer).SetMode(ctx, req.(*ScadaSetModeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TelemetryStream_ServiceDesc is the grpc.ServiceDesc for TelemetryStream service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +192,10 @@ var TelemetryStream_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SupervisoryControl",
 			Handler:    _TelemetryStream_SupervisoryControl_Handler,
+		},
+		{
+			MethodName: "SetMode",
+			Handler:    _TelemetryStream_SetMode_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

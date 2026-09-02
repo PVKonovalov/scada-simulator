@@ -43,10 +43,9 @@ const (
 	// (interlock, expired/unknown selection, invalid command). Detail is
 	// ControlRejectedDetail.
 	EventControlRejected
-	// EventControlBlocked fires when Block takes effect. Detail is ControlBlockedDetail.
-	EventControlBlocked
-	// EventControlUnblocked fires when Unblock takes effect. Detail is ControlUnblockedDetail.
-	EventControlUnblocked
+	// EventModeChanged fires when SetMode changes the breaker's Mode. Detail
+	// is ModeChangedDetail.
+	EventModeChanged
 )
 
 // String returns a short human-readable name for the event kind.
@@ -68,10 +67,8 @@ func (k EventKind) String() string {
 		return "SettingsChanged"
 	case EventControlRejected:
 		return "ControlRejected"
-	case EventControlBlocked:
-		return "ControlBlocked"
-	case EventControlUnblocked:
-		return "ControlUnblocked"
+	case EventModeChanged:
+		return "ModeChanged"
 	default:
 		return "Unknown"
 	}
@@ -145,14 +142,13 @@ type ControlRejectedDetail struct {
 	Reason string
 }
 
-// ControlBlockedDetail is the Event.Detail for EventControlBlocked.
-type ControlBlockedDetail struct {
-	// Reason is why the breaker was blocked, as passed to Block.
+// ModeChangedDetail is the Event.Detail for EventModeChanged.
+type ModeChangedDetail struct {
+	// Mode is the breaker's new mode.
+	Mode Mode
+	// Reason is why the mode was changed, as passed to SetMode.
 	Reason string
 }
-
-// ControlUnblockedDetail is the Event.Detail for EventControlUnblocked.
-type ControlUnblockedDetail struct{}
 
 // EventSubscriber lets a consumer receive push-based notifications
 // alongside the polling getters on the other SCADA interfaces.

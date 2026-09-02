@@ -18,6 +18,11 @@ import (
 // position, even though both concern the same breaker.
 const controlTagSuffix = ".control"
 
+// modeTagSuffix is appended to a breaker's name to form its mode tag — the
+// same tag Subscribe reports IEC 61850 Mod-style mode on (see
+// dataPointsForEvent's breaker.ModeChangedDetail handling).
+const modeTagSuffix = ".mode"
+
 // SupervisoryControl implements telemetry.TelemetryStreamServer, performing
 // telecontrol on a breaker's position.
 //
@@ -104,6 +109,69 @@ func (s *TelemetryServer) SupervisoryControl(ctx context.Context, req *telemetry
 	s.logger.Infof("telemetry: control %s result=%s moved=%t breaker position=%s (was %s) quality=%s protection=%s",
 		req.GetKey(), result, pos != beforePos, pos, beforePos, posQuality, ps.State)
 	return controlResponse(result), nil
+}
+
+// SetMode implements telemetry.TelemetryStreamServer, changing a breaker's
+// IEC 61850 Mod-style operating mode.
+//
+// Key must be "<breaker-name>.mode". Mode is mapped to breaker.Mode via
+// modeForProto (ERROR_NOT_SUPPORTED if it isn't one of ScadaMode's four
+// modelled values) and passed to BreakerController.SetMode along with
+// Reason. The resulting mode is enforced by SupervisoryControl
+// (ERROR_BLOCKED while Blocked or Off) and reflected on Subscribe via the
+// same "<name>.mode" tag, exactly as if SetMode had been called directly on
+// the Simulator.
+//
+// Every call is logged at Info level twice, matching SupervisoryControl:
+// the incoming request before validation, and the outcome right before
+// returning.
+func (s *TelemetryServer) SetMode(ctx context.Context, req *telemetry.ScadaSetModeRequest) (*telemetry.ScadaSetModeResponse, error) {
+	s.logger.Infof("telemetry: set_mode %s mode=%s reason=%q client_id=%q",
+		req.GetKey(), req.GetMode(), req.GetReason(), req.GetClientId())
+
+	name, ok := strings.CutSuffix(req.GetKey(), modeTagSuffix)
+	if !ok {
+		return setModeResponse(telemetry.ScadaSupervisoryControlResult_ERROR_ITEM_IS_NOT_FOUND), nil
+	}
+	sim, ok := s.breakers[name]
+	if !ok {
+		return setModeResponse(telemetry.ScadaSupervisoryControlResult_ERROR_OBJECT_IS_NOT_FOUND), nil
+	}
+	mode, ok := modeForProto(req.GetMode())
+	if !ok {
+		return setModeResponse(telemetry.ScadaSupervisoryControlResult_ERROR_NOT_SUPPORTED), nil
+	}
+
+	result := telemetry.ScadaSupervisoryControlResult_OK
+	if err := sim.SetMode(ctx, mode, req.GetReason()); err != nil {
+		result = controlErrorResult(err)
+	}
+
+	s.logger.Infof("telemetry: set_mode %s result=%s mode=%s", req.GetKey(), result, sim.Mode())
+	return setModeResponse(result), nil
+}
+
+// setModeResponse wraps a result in a ScadaSetModeResponse.
+func setModeResponse(result telemetry.ScadaSupervisoryControlResult) *telemetry.ScadaSetModeResponse {
+	return &telemetry.ScadaSetModeResponse{Result: result}
+}
+
+// modeForProto maps a ScadaMode to a breaker.Mode, reporting ok=false for
+// MODE_UNKNOWN or any value this simulator doesn't model (e.g. IEC 61850's
+// TEST/BLOCKED, 4).
+func modeForProto(m telemetry.ScadaMode) (breaker.Mode, bool) {
+	switch m {
+	case telemetry.ScadaMode_MODE_ON:
+		return breaker.ModeOn, true
+	case telemetry.ScadaMode_MODE_BLOCKED:
+		return breaker.ModeBlocked, true
+	case telemetry.ScadaMode_MODE_TEST:
+		return breaker.ModeTest, true
+	case telemetry.ScadaMode_MODE_OFF:
+		return breaker.ModeOff, true
+	default:
+		return 0, false
+	}
 }
 
 // selectAndExecute performs Select immediately followed by Operate, for a

@@ -197,11 +197,12 @@ func TestSimulator_SelectionExpires(t *testing.T) {
 	}
 }
 
-// TestSimulator_Block checks that Block is reflected as qds.QdsBlocked on
-// the quality Position() returns, that it rejects both a new Select and an
-// Operate on an already-pending selection, and that Unblock clears the
-// quality flag and lets that same (still-pending) selection succeed.
-func TestSimulator_Block(t *testing.T) {
+// TestSimulator_SetMode_Blocked checks that SetMode(ModeBlocked) is
+// reflected as qds.QdsBlocked on the quality Position() returns, that it
+// rejects both a new Select and an Operate on an already-pending selection,
+// and that SetMode(ModeOn) clears the quality flag and lets that same
+// (still-pending) selection succeed.
+func TestSimulator_SetMode_Blocked(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -219,16 +220,20 @@ func TestSimulator_Block(t *testing.T) {
 		t.Fatalf("Select before block: %v", err)
 	}
 
-	if err := sim.Block(ctx, "maintenance"); err != nil {
-		t.Fatalf("Block: %v", err)
+	if err := sim.SetMode(ctx, ModeBlocked, "maintenance"); err != nil {
+		t.Fatalf("SetMode(Blocked): %v", err)
 	}
-	blockedEv := waitForEvent(t, ctx, events, EventControlBlocked)
-	if reason := blockedEv.Detail.(ControlBlockedDetail).Reason; reason != "maintenance" {
-		t.Errorf("ControlBlockedDetail.Reason = %q, want %q", reason, "maintenance")
+	modeEv := waitForEvent(t, ctx, events, EventModeChanged)
+	detail := modeEv.Detail.(ModeChangedDetail)
+	if detail.Mode != ModeBlocked || detail.Reason != "maintenance" {
+		t.Errorf("ModeChangedDetail = %+v, want {ModeBlocked maintenance}", detail)
 	}
 
 	if _, q := sim.Position(); !q.Has(qds.QdsBlocked) {
 		t.Errorf("Position() quality = %v, want QdsBlocked set", q)
+	}
+	if mode := sim.Mode(); mode != ModeBlocked {
+		t.Errorf("Mode() = %v, want ModeBlocked", mode)
 	}
 
 	if _, err := sim.Select(ctx, cmd); !isInterlockError(err) {
@@ -238,10 +243,10 @@ func TestSimulator_Block(t *testing.T) {
 		t.Errorf("Operate() while blocked err = %v, want *InterlockError", err)
 	}
 
-	if err := sim.Unblock(ctx); err != nil {
-		t.Fatalf("Unblock: %v", err)
+	if err := sim.SetMode(ctx, ModeOn, ""); err != nil {
+		t.Fatalf("SetMode(On): %v", err)
 	}
-	waitForEvent(t, ctx, events, EventControlUnblocked)
+	waitForEvent(t, ctx, events, EventModeChanged)
 
 	if _, q := sim.Position(); q.Has(qds.QdsBlocked) {
 		t.Errorf("Position() quality = %v, want QdsBlocked cleared", q)
@@ -250,6 +255,86 @@ func TestSimulator_Block(t *testing.T) {
 	// The selection made before Block survived it and still works.
 	if err := sim.Operate(ctx, id, cmd); err != nil {
 		t.Errorf("Operate() after unblock: %v", err)
+	}
+}
+
+// TestSimulator_SetMode_Off checks that ModeOff rejects control the same as
+// ModeBlocked, and that InjectMeasurement stores the reading but stops
+// evaluating protection and reporting events while Off.
+func TestSimulator_SetMode_Off(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sim := New(ctx, Config{InitialPosition: PositionClosed})
+	defer sim.Close()
+
+	events, err := sim.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	if err := sim.SetMode(ctx, ModeOff, "decommissioned"); err != nil {
+		t.Fatalf("SetMode(Off): %v", err)
+	}
+	waitForEvent(t, ctx, events, EventModeChanged)
+	waitForEvent(t, ctx, events, EventPositionChanged) // SetMode's own quality-refresh confirmation
+
+	cmd := Command{Target: PositionOpen, Source: "test"}
+	if _, err := sim.Select(ctx, cmd); !isInterlockError(err) {
+		t.Errorf("Select() while off err = %v, want *InterlockError", err)
+	}
+	waitForEvent(t, ctx, events, EventControlRejected)
+
+	if err := sim.InjectMeasurement(Measurement{Current: PhaseValues{A: 10000, B: 10000, C: 10000}}); err != nil {
+		t.Fatalf("InjectMeasurement: %v", err)
+	}
+	select {
+	case ev := <-events:
+		t.Errorf("unexpected event while off: %+v", ev)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if got := sim.Measurement().Current.A; got != 10000 {
+		t.Errorf("Measurement().Current.A = %v, want 10000 (still latched while off)", got)
+	}
+}
+
+// TestSimulator_SetMode_BlockedInhibitsTrip checks that a fault current
+// exceeding the instantaneous pickup while ModeBlocked still trips
+// protectionState (the function still decides to trip) but does not
+// actually open the breaker (no physical output).
+func TestSimulator_SetMode_BlockedInhibitsTrip(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sim := New(ctx, Config{
+		InitialPosition: PositionClosed,
+		SettingsGroups: []SettingsGroupConfig{{
+			Group:    0,
+			Settings: ProtectionSettings{InstantaneousPickup: 1000},
+		}},
+	})
+	defer sim.Close()
+
+	if err := sim.SetMode(ctx, ModeBlocked, "maintenance"); err != nil {
+		t.Fatalf("SetMode(Blocked): %v", err)
+	}
+
+	if err := sim.InjectMeasurement(Measurement{Current: PhaseValues{A: 5000, B: 5000, C: 5000}}); err != nil {
+		t.Fatalf("InjectMeasurement: %v", err)
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if sim.ProtectionStatus().State == ProtectionTripped {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := sim.ProtectionStatus().State; got != ProtectionTripped {
+		t.Fatalf("ProtectionStatus().State = %v, want ProtectionTripped", got)
+	}
+	if pos, _ := sim.Position(); pos != PositionClosed {
+		t.Errorf("Position() = %v, want Closed (Blocked must inhibit the physical trip)", pos)
 	}
 }
 

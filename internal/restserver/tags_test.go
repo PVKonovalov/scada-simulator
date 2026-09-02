@@ -63,7 +63,7 @@ func TestServer_Tags_ListsEveryBreakersTags(t *testing.T) {
 
 	wantTypes := map[string]string{
 		"feeder-1.position":            "integer",
-		"feeder-1.blocked":             "boolean",
+		"feeder-1.mode":                "boolean",
 		"feeder-1.current.a":           "float",
 		"feeder-1.power.reactive":      "float",
 		"feeder-1.frequency":           "float",
@@ -87,7 +87,7 @@ func TestServer_Tags_ListsEveryBreakersTags(t *testing.T) {
 		}
 	}
 
-	const wantPerBreaker = 17 // position, blocked, 3xcurrent, 3xvoltage, 3xpower, frequency, protection.state, protection.group, autoreclose.state, autoreclose.attempt, control
+	const wantPerBreaker = 17 // position, mode, 3xcurrent, 3xvoltage, 3xpower, frequency, protection.state, protection.group, autoreclose.state, autoreclose.attempt, control
 	if len(sub.Tags) != wantPerBreaker*2 {
 		t.Errorf("len(Tags) = %d, want %d (2 breakers x %d tags)", len(sub.Tags), wantPerBreaker*2, wantPerBreaker)
 	}
