@@ -406,6 +406,9 @@ func (s *Simulator) InjectMeasurement(m Measurement) error {
 // same "percent of operate time consumed" model real numerical relays use,
 // which needs no background timer of its own. Skipped entirely when Mode is
 // Off: the function is not active, so it neither evaluates nor reports.
+// Pickup/trip themselves are further skipped whenever the breaker isn't
+// currently Closed (see the position check below) — the measurement is
+// still stored and reported either way.
 func (s *Simulator) evaluateProtection(st *simState, m Measurement) {
 	st.measurement = m
 	if st.mode == ModeOff {
@@ -421,6 +424,20 @@ func (s *Simulator) evaluateProtection(st *simState, m Measurement) {
 	st.lastEvalAt = now
 
 	if st.protectionState == ProtectionTripped || st.protectionState == ProtectionLockout {
+		return
+	}
+	if st.position != PositionClosed {
+		// A breaker that isn't Closed carries no current for a real relay
+		// to see — nothing to pick up or trip. This matters most right
+		// after SetMode(ModeOn)/ResetLockout resets protectionState back to
+		// Normal while the breaker is still sitting physically Open (they
+		// don't touch position): without this check, an ongoing sustained
+		// fault (see internal/faultsimserver) would immediately re-arm and
+		// trip an already-open breaker, kicking off a brand-new autoreclose
+		// cycle that was never actually preceded by a close. A fresh
+		// autoreclose cycle must only ever start from a genuine trip of a
+		// Closed breaker — whether that Close was the operator's or
+		// autoreclose's own.
 		return
 	}
 
@@ -515,8 +532,12 @@ func (s *Simulator) trip(st *simState, cause ProtectionCause, current float64, o
 
 // onBreakerOpen runs once the breaker is confirmed Open following a trip.
 // If autoreclose is enabled it starts (or advances) the reclose sequence;
-// if the sequence has just entered Lockout, it reflects that onto
-// protectionState and emits EventLockout.
+// if the sequence has just entered Lockout — every configured reclose
+// attempt failed — it reflects that onto protectionState, emits
+// EventLockout, and puts the breaker into ModeBlocked: an unsuccessful
+// autoreclose leaves the switch not just open but blocked from further
+// remote control until an operator explicitly intervenes (ResetLockout,
+// which also clears ModeBlocked — see its doc comment).
 func (s *Simulator) onBreakerOpen(st *simState) {
 	if st.protectionState != ProtectionTripped || !st.autoReclose.config.Enabled {
 		return
@@ -536,6 +557,7 @@ func (s *Simulator) onBreakerOpen(st *simState) {
 	if st.autoReclose.state == AutoRecloseLockout {
 		st.protectionState = ProtectionLockout
 		s.emit(st, EventLockout, LockoutDetail{Attempts: st.autoReclose.config.MaxAttempts})
+		s.setMode(st, ModeBlocked, "autoreclose lockout")
 	}
 }
 
@@ -610,6 +632,14 @@ func (s *Simulator) doSelect(st *simState, cmd Command) (SelectionID, error) {
 	if st.autoReclose.state == AutoRecloseDeadTime || st.autoReclose.state == AutoRecloseClosing {
 		return "", s.rejectControl(st, cmd, "automatic reclose sequence in progress")
 	}
+	if st.autoReclose.state == AutoRecloseLockout {
+		// ResetLockout's doc comment: clearing Lockout requires an explicit
+		// operator/SCADA action per ANSI 79 practice — an ordinary Select
+		// must not be able to bypass it and leave protectionState stuck at
+		// Lockout after a manual Close (completeOperate only ever clears
+		// Tripped, deliberately not Lockout).
+		return "", s.rejectControl(st, cmd, "breaker is in autoreclose lockout: call ResetLockout first")
+	}
 
 	id := newSelectionID()
 	st.selections[id] = &selection{cmd: cmd}
@@ -668,6 +698,12 @@ func (s *Simulator) doOperate(st *simState, id SelectionID, cmd Command) error {
 		// the breaker to On before it times out.
 		return s.rejectControl(st, cmd, "breaker mode is "+st.mode.String()+": "+st.modeReason)
 	}
+	if st.autoReclose.state == AutoRecloseLockout {
+		// Defensive: doSelect already rejects a fresh Select once Lockout is
+		// reached, but a Select made just before entering Lockout could
+		// still reach here with a pending Operate — see doSelect's comment.
+		return s.rejectControl(st, cmd, "breaker is in autoreclose lockout: call ResetLockout first")
+	}
 	delete(st.selections, id)
 
 	if st.position == sel.cmd.Target && st.position != PositionIntermediate {
@@ -709,16 +745,22 @@ func (s *Simulator) doCancel(st *simState, id SelectionID) error {
 	return &UnknownSelectionError{ID: id}
 }
 
-// ResetLockout implements BreakerController.
+// ResetLockout implements BreakerController. Besides clearing the
+// autoreclose sequence itself, it also clears the ModeBlocked
+// onBreakerOpen automatically applies on entering Lockout — this is one of
+// two equivalent ways to return the breaker to service (see setMode's
+// ModeOn case for the other, SetMode(ModeOn)), and either one must undo
+// both halves of that automatic effect, not leave the breaker still
+// rejecting remote control (or still in Lockout) afterward.
 func (s *Simulator) ResetLockout(ctx context.Context) error {
 	var opErr error
 	err := s.doCtx(ctx, func(st *simState) {
-		if opErr = st.autoReclose.ResetLockout(); opErr != nil {
+		if opErr = s.resetLockout(st); opErr != nil {
 			return
 		}
-		st.protectionState = ProtectionNormal
-		st.stage51Progress = 0
-		st.instArmed = false
+		if st.mode == ModeBlocked {
+			s.setMode(st, ModeOn, "")
+		}
 	})
 	if err != nil {
 		return err
@@ -726,25 +768,51 @@ func (s *Simulator) ResetLockout(ctx context.Context) error {
 	return opErr
 }
 
+// resetLockout is the run-loop body shared by ResetLockout and setMode's
+// ModeOn case. Returns an error (ignored by setMode) if the sequence isn't
+// actually in Lockout.
+func (s *Simulator) resetLockout(st *simState) error {
+	if err := st.autoReclose.ResetLockout(); err != nil {
+		return err
+	}
+	st.protectionState = ProtectionNormal
+	st.stage51Progress = 0
+	st.instArmed = false
+	return nil
+}
+
 // SetMode implements BreakerController.
 func (s *Simulator) SetMode(ctx context.Context, mode Mode, reason string) error {
-	return s.doCtx(ctx, func(st *simState) {
-		st.mode = mode
-		st.modeReason = reason
-		switch mode {
-		case ModeBlocked, ModeOff:
-			st.posQuality.Clear(qds.QdsTest)
-			st.posQuality.Set(qds.QdsBlocked)
-		case ModeTest:
-			st.posQuality.Clear(qds.QdsBlocked)
-			st.posQuality.Set(qds.QdsTest)
-		default: // ModeOn
-			st.posQuality.Clear(qds.QdsBlocked)
-			st.posQuality.Clear(qds.QdsTest)
-		}
-		s.emit(st, EventModeChanged, ModeChangedDetail{Mode: mode, Reason: reason})
-		s.emit(st, EventPositionChanged, PositionChangedDetail{Position: st.position, Quality: st.posQuality})
-	})
+	return s.doCtx(ctx, func(st *simState) { s.setMode(st, mode, reason) })
+}
+
+// setMode is the run-loop body shared by SetMode and any internal caller
+// that needs to change mode from within an already-running command (e.g.
+// onBreakerOpen auto-applying ModeBlocked on Lockout) — calling the public
+// SetMode from inside a run-loop callback would deadlock doCtx against
+// itself.
+func (s *Simulator) setMode(st *simState, mode Mode, reason string) {
+	st.mode = mode
+	st.modeReason = reason
+	switch mode {
+	case ModeBlocked, ModeOff:
+		st.posQuality.Clear(qds.QdsTest)
+		st.posQuality.Set(qds.QdsBlocked)
+	case ModeTest:
+		st.posQuality.Clear(qds.QdsBlocked)
+		st.posQuality.Set(qds.QdsTest)
+	default: // ModeOn
+		st.posQuality.Clear(qds.QdsBlocked)
+		st.posQuality.Clear(qds.QdsTest)
+		// A caller might have no other way to recover from Lockout than
+		// setting mode back to On (e.g. ResetLockout isn't exposed over
+		// gRPC at all) — so this, like ResetLockout itself, also clears an
+		// active Lockout. resetLockout no-ops (via its own ignored error)
+		// when the sequence isn't actually in Lockout.
+		_ = s.resetLockout(st)
+	}
+	s.emit(st, EventModeChanged, ModeChangedDetail{Mode: mode, Reason: reason})
+	s.emit(st, EventPositionChanged, PositionChangedDetail{Position: st.position, Quality: st.posQuality})
 }
 
 // rejectControl builds and emits an InterlockError as an EventControlRejected.

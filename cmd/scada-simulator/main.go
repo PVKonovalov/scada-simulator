@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"os/signal"
 	config "scada-simulator/internal/configuration"
+	"scada-simulator/internal/faultsimserver"
 	flags2 "scada-simulator/internal/flags"
 	"scada-simulator/internal/restserver"
 	"scada-simulator/internal/telemetryserver"
 	"scada-simulator/pkg/breaker"
 	"scada-simulator/pkg/configuration"
+	"scada-simulator/pkg/faultsim"
 	"scada-simulator/pkg/llog"
 	"scada-simulator/pkg/telemetry"
 	"sync"
@@ -86,6 +88,11 @@ func main() {
 	// implemented by telemetryserver.TelemetryServer, backed by simulators.
 	gRpcServer := grpc.NewServer()
 	telemetry.RegisterTelemetryStreamServer(gRpcServer, telemetryserver.NewTelemetryServer(ctx, simulators, llog.Logger))
+
+	// FaultSimulator is served alongside TelemetryStream on the same gRPC
+	// server/port — see api/scada/faultsim.proto's package doc for why it's
+	// a separate service rather than an addition to TelemetryStream.
+	faultsim.RegisterFaultSimulatorServer(gRpcServer, faultsimserver.NewFaultSimulatorServer(ctx, simulators, llog.Logger))
 
 	if llog.Logger.GetLevel() >= llog.DebugLevel {
 		reflection.Register(gRpcServer)

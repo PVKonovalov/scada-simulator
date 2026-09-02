@@ -1,5 +1,5 @@
 logging:
-  level: trace
+  level: info
 dms:
   api:
     database:
@@ -38,8 +38,8 @@ breakers:
     # ANSI device 79 automatic reclose sequence.
     auto_reclose:
       enabled: true
-      max_attempts: 2
-      dead_times: [5s, 15s]  # dead time before each attempt; must have at least max_attempts entries
+      max_attempts: 3
+      dead_times: [5s, 5s, 5s]  # dead time before each attempt; must have at least max_attempts entries
       reclaim_time: 30s
     # How long an Open/Close operation takes to settle (breaker travel time).
     mechanical_operate_time: 60ms

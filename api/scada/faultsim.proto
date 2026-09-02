@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+option go_package = "faultsim/";
+package rdss.faultsim.v1;
+
+// Internal-only gRPC service for driving pkg/breaker.EmulatorFeed from
+// outside the process — simulating grid faults (overcurrent, and any other
+// analog condition) against a running scada-simulator instance, so a test
+// harness or operator can trigger a real trip/autoreclose sequence without
+// modifying config or restarting the binary.
+//
+// Unlike telemetry.proto's TelemetryStream, this service mirrors no real
+// DMS/SCADA backend contract (see api/scada/openapi.json) — it exists only
+// for this simulator, served on the same gRPC server/port as
+// TelemetryStream.
+
+service FaultSimulator {
+  // InjectMeasurement feeds one three-phase measurement into a named
+  // breaker, driving its protection evaluation exactly like
+  // pkg/breaker.EmulatorFeed.InjectMeasurement — e.g. a current above a
+  // breaker's configured instantaneous or time-overcurrent pickup trips it,
+  // which in turn may start its autoreclose sequence.
+  rpc InjectMeasurement(InjectMeasurementRequest) returns (InjectMeasurementResponse);
+}
+
+message PhaseValues {
+  double a = 1;
+  double b = 2;
+  double c = 3;
+}
+
+message InjectMeasurementRequest {
+  // Which breaker to feed, i.e. its configured Config.Name (e.g. "feeder-1").
+  string breaker = 1;
+  // Phase currents, amps RMS.
+  PhaseValues current = 2;
+  // Phase voltages, volts RMS, phase-to-neutral.
+  PhaseValues voltage = 3;
+  // Three-phase active power, W.
+  double active_power = 4;
+  // Three-phase reactive power, VAR.
+  double reactive_power = 5;
+  // Three-phase apparent power, VA.
+  double apparent_power = 6;
+  // Power-system frequency, Hz.
+  double frequency = 7;
+}
+
+enum InjectMeasurementResult {
+  OK = 0;
+  ERROR_BREAKER_NOT_FOUND = 1;
+}
+
+message InjectMeasurementResponse {
+  InjectMeasurementResult result = 1;
+}

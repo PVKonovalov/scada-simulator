@@ -57,6 +57,15 @@ element as a short fixed delay. Both are pure functions, independent of the
 simulator's timing machinery, and are unit tested directly in
 [`protection_test.go`](protection_test.go).
 
+`evaluateProtection` only ever picks up or trips while `position` is
+`PositionClosed` — a breaker that isn't Closed carries no current for a
+real relay to see, so injecting a fault into one that's `Open` (before it's
+ever been closed, or after a trip/`Lockout`) is a no-op: the measurement is
+still stored and reported, but nothing evaluates. This is what stops a
+still-ongoing fault from immediately re-tripping an already-open breaker
+the moment `SetMode`/`ResetLockout` clears `Lockout` — see Autoreclose
+below.
+
 ## Autoreclose
 
 The ANSI device 79 automatic reclose sequence
@@ -65,6 +74,47 @@ The ANSI device 79 automatic reclose sequence
 [`autoreclose.go`](autoreclose.go), independently unit tested in
 [`autoreclose_test.go`](autoreclose_test.go). `Simulator` drives it with
 real timers; the state machine itself owns none.
+
+While in `Lockout`, `Select`/`Operate` reject any command with
+`*InterlockError` ("call `ResetLockout` first") rather than allow a manual
+Close to bypass it — matching `ResetLockout`'s documented ANSI 79
+requirement that clearing a lockout takes an explicit operator/SCADA
+action. This matters because `completeOperate` only ever clears
+`protectionState` out of `Tripped`, deliberately never out of `Lockout`: an
+ungated manual Close would physically shut the breaker while leaving
+protection evaluation permanently stuck (`evaluateProtection` short-circuits
+on `ProtectionLockout`), an inconsistent state a real operator could easily
+create by accident.
+
+Reaching `Lockout` also auto-applies `ModeBlocked` (`onBreakerOpen` calls
+the same internal `setMode` `SetMode` does) — an unsuccessful autoreclose
+leaves the switch not just open but explicitly blocked from further remote
+control, matching real ANSI 79 practice, and reported the same way any
+other `ModeBlocked` transition is (`EventModeChanged`, `"<name>.mode"` on
+`Subscribe`).
+
+Recovering from that state takes one of two equivalent actions — a caller
+only needs whichever one it can actually reach:
+
+- `ResetLockout` clears the autoreclose sequence back to `Ready` *and* the
+  mode back to `ModeOn` (only if it's still `ModeBlocked` — an operator's
+  own unrelated `ModeOff`/`ModeTest` choice at the same time is left
+  alone).
+- `SetMode(ModeOn, ...)` does the same the other way around: as well as
+  clearing `ModeBlocked`, it also clears an active `Lockout` back to
+  `Ready` (a no-op, via `resetLockout`'s own ignored "not in lockout"
+  error, when there wasn't one). This exists because a caller might have no
+  other way to recover — `ResetLockout` isn't exposed over any gRPC
+  service in this repo, only `SetMode` is (`ProtectionTerminalSetMode`).
+
+Either way, both halves (autoreclose state, mode) always clear together —
+a caller must never find one cleared but not the other. Neither action
+touches `position` — the breaker is left sitting exactly where it
+physically was (typically `Open`). This matters because `evaluateProtection`
+only ever picks up/trips while the breaker is `Closed` (see below): a fault
+nobody cleared stays silently pending rather than immediately re-tripping
+an already-open breaker the instant recovery clears `protectionState` back
+to `Normal` — a fresh trip only ever follows an actual Close.
 
 ## Configuration
 

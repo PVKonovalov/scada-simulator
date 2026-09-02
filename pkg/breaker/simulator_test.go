@@ -87,6 +87,278 @@ func TestSimulator_TripAndReclose(t *testing.T) {
 	}
 }
 
+// TestSimulator_LockoutRejectsManualClose checks that Select/Operate reject
+// a manual command while the autoreclose sequence is in Lockout, per
+// ResetLockout's documented ANSI 79 requirement that clearing Lockout takes
+// an explicit operator action — a manual Close must not be able to bypass
+// that and leave protectionState stuck at Lockout forever (completeOperate
+// only ever clears Tripped, deliberately not Lockout). It also checks that
+// reaching Lockout automatically puts the breaker into ModeBlocked, and
+// that ResetLockout clears both Lockout and ModeBlocked together, after
+// which the same command succeeds.
+func TestSimulator_LockoutRejectsManualClose(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sim := New(ctx, Config{
+		InitialPosition: PositionClosed,
+		SettingsGroups: []SettingsGroupConfig{
+			{Group: SettingsGroup1, Settings: ProtectionSettings{InstantaneousPickup: 1000}},
+		},
+		AutoReclose: AutoRecloseConfig{
+			Enabled:     true,
+			MaxAttempts: 1,
+			DeadTimes:   []time.Duration{2 * time.Millisecond},
+			// Comfortably longer than the instantaneous delay (1.5ms) plus
+			// MechanicalOperateTime (5ms), so the re-injected fault's own
+			// trip is guaranteed to reach Open (and so reach autoReclose's
+			// OnTrip) before this reclaim timer would otherwise elapse and
+			// reset the attempt count — see pkg/breaker/example_test.go's
+			// Example, which documents the same margin requirement.
+			ReclaimTime: 50 * time.Millisecond,
+		},
+		MechanicalOperateTime: 5 * time.Millisecond,
+		NominalFrequencyHz:    1000, // shrinks the instantaneous delay to 1.5ms for a fast test
+	})
+	defer sim.Close()
+
+	events, err := sim.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	fault := Measurement{Current: PhaseValues{A: 2000, B: 2000, C: 2000}}
+	if err := sim.InjectMeasurement(fault); err != nil {
+		t.Fatalf("InjectMeasurement: %v", err)
+	}
+
+	// Wait for the single configured attempt to reclose, then re-inject the
+	// still-present fault so it re-trips during Reclaim and the sequence
+	// reaches Lockout (MaxAttempts exceeded).
+	for {
+		ev := waitForEvent(t, ctx, events, EventPositionChanged)
+		if ev.Detail.(PositionChangedDetail).Position == PositionClosed {
+			break
+		}
+	}
+	if err := sim.InjectMeasurement(fault); err != nil {
+		t.Fatalf("InjectMeasurement (re-fault): %v", err)
+	}
+	waitForEvent(t, ctx, events, EventLockout)
+
+	if status := sim.ProtectionStatus(); status.State != ProtectionLockout {
+		t.Fatalf("ProtectionStatus().State = %v, want Lockout", status.State)
+	}
+	posBefore, _ := sim.Position()
+	if posBefore != PositionOpen {
+		t.Fatalf("Position() = %v, want Open", posBefore)
+	}
+	if mode := sim.Mode(); mode != ModeBlocked {
+		t.Fatalf("Mode() = %v, want ModeBlocked (auto-applied on Lockout)", mode)
+	}
+
+	cmd := Command{Target: PositionClosed, Source: "test"}
+	if _, err := sim.Select(ctx, cmd); !isInterlockError(err) {
+		t.Errorf("Select() during Lockout err = %v, want *InterlockError", err)
+	}
+	if pos, _ := sim.Position(); pos != PositionOpen {
+		t.Errorf("Position() after rejected Select = %v, want unchanged Open", pos)
+	}
+	if status := sim.ProtectionStatus(); status.State != ProtectionLockout {
+		t.Errorf("ProtectionStatus().State after rejected Select = %v, want unchanged Lockout", status.State)
+	}
+
+	if err := sim.ResetLockout(ctx); err != nil {
+		t.Fatalf("ResetLockout: %v", err)
+	}
+	if status := sim.ProtectionStatus(); status.State != ProtectionNormal {
+		t.Fatalf("ProtectionStatus().State after ResetLockout = %v, want Normal", status.State)
+	}
+	if mode := sim.Mode(); mode != ModeOn {
+		t.Fatalf("Mode() after ResetLockout = %v, want ModeOn (ResetLockout clears the auto-applied ModeBlocked too)", mode)
+	}
+
+	id, err := sim.Select(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Select() after ResetLockout: %v", err)
+	}
+	if err := sim.Operate(ctx, id, cmd); err != nil {
+		t.Fatalf("Operate() after ResetLockout: %v", err)
+	}
+	for {
+		ev := waitForEvent(t, ctx, events, EventPositionChanged)
+		if ev.Detail.(PositionChangedDetail).Position == PositionClosed {
+			break
+		}
+	}
+}
+
+// TestSimulator_SetModeOnClearsLockout checks that SetMode(ModeOn) is a
+// second, equivalent way to recover from Lockout — not just ResetLockout —
+// since a caller might have no other way to reach it (e.g. ResetLockout
+// isn't exposed over gRPC at all in this repo, only SetMode is).
+func TestSimulator_SetModeOnClearsLockout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sim := New(ctx, Config{
+		InitialPosition: PositionClosed,
+		SettingsGroups: []SettingsGroupConfig{
+			{Group: SettingsGroup1, Settings: ProtectionSettings{InstantaneousPickup: 1000}},
+		},
+		AutoReclose: AutoRecloseConfig{
+			Enabled:     true,
+			MaxAttempts: 1,
+			DeadTimes:   []time.Duration{2 * time.Millisecond},
+			ReclaimTime: 50 * time.Millisecond, // see TestSimulator_LockoutRejectsManualClose's comment on this margin
+		},
+		MechanicalOperateTime: 5 * time.Millisecond,
+		NominalFrequencyHz:    1000,
+	})
+	defer sim.Close()
+
+	events, err := sim.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	fault := Measurement{Current: PhaseValues{A: 2000, B: 2000, C: 2000}}
+	if err := sim.InjectMeasurement(fault); err != nil {
+		t.Fatalf("InjectMeasurement: %v", err)
+	}
+	for {
+		ev := waitForEvent(t, ctx, events, EventPositionChanged)
+		if ev.Detail.(PositionChangedDetail).Position == PositionClosed {
+			break
+		}
+	}
+	if err := sim.InjectMeasurement(fault); err != nil {
+		t.Fatalf("InjectMeasurement (re-fault): %v", err)
+	}
+	waitForEvent(t, ctx, events, EventLockout)
+
+	if status := sim.AutoRecloseStatus(); status.State != AutoRecloseLockout {
+		t.Fatalf("AutoRecloseStatus().State = %v, want Lockout", status.State)
+	}
+
+	if err := sim.SetMode(ctx, ModeOn, ""); err != nil {
+		t.Fatalf("SetMode(On): %v", err)
+	}
+	if status := sim.AutoRecloseStatus(); status.State != AutoRecloseReady {
+		t.Fatalf("AutoRecloseStatus().State after SetMode(On) = %v, want Ready (SetMode(On) must clear Lockout too)", status.State)
+	}
+	if status := sim.ProtectionStatus(); status.State != ProtectionNormal {
+		t.Fatalf("ProtectionStatus().State after SetMode(On) = %v, want Normal", status.State)
+	}
+
+	cmd := Command{Target: PositionClosed, Source: "test"}
+	id, err := sim.Select(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Select() after SetMode(On): %v", err)
+	}
+	if err := sim.Operate(ctx, id, cmd); err != nil {
+		t.Fatalf("Operate() after SetMode(On): %v", err)
+	}
+}
+
+// TestSimulator_RecoveryDoesNotRetripWhileOpen checks a real reported bug:
+// after SetMode(ModeOn)/ResetLockout clears Lockout, the breaker is left
+// sitting physically Open (neither function touches position) — a still-
+// ongoing fault (e.g. internal/faultsimserver's sustained injection) must
+// not immediately re-arm and trip an already-open breaker, kicking off a
+// brand-new autoreclose cycle nothing actually closed into. A fresh trip
+// must only ever follow a genuine Close of the breaker.
+func TestSimulator_RecoveryDoesNotRetripWhileOpen(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sim := New(ctx, Config{
+		InitialPosition: PositionClosed,
+		SettingsGroups: []SettingsGroupConfig{
+			{Group: SettingsGroup1, Settings: ProtectionSettings{InstantaneousPickup: 1000}},
+		},
+		AutoReclose: AutoRecloseConfig{
+			Enabled:     true,
+			MaxAttempts: 1,
+			DeadTimes:   []time.Duration{2 * time.Millisecond},
+			ReclaimTime: 50 * time.Millisecond, // see TestSimulator_LockoutRejectsManualClose's comment on this margin
+		},
+		MechanicalOperateTime: 5 * time.Millisecond,
+		NominalFrequencyHz:    1000,
+	})
+	defer sim.Close()
+
+	events, err := sim.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	fault := Measurement{Current: PhaseValues{A: 2000, B: 2000, C: 2000}}
+	if err := sim.InjectMeasurement(fault); err != nil {
+		t.Fatalf("InjectMeasurement: %v", err)
+	}
+	for {
+		ev := waitForEvent(t, ctx, events, EventPositionChanged)
+		if ev.Detail.(PositionChangedDetail).Position == PositionClosed {
+			break
+		}
+	}
+	if err := sim.InjectMeasurement(fault); err != nil {
+		t.Fatalf("InjectMeasurement (re-fault): %v", err)
+	}
+	waitForEvent(t, ctx, events, EventLockout)
+
+	if err := sim.SetMode(ctx, ModeOn, ""); err != nil {
+		t.Fatalf("SetMode(On): %v", err)
+	}
+
+	// The fault is still "present" (nothing cleared it) — feeding it again,
+	// as a sustain loop would, must not re-trip the still-Open breaker.
+	for range 5 {
+		if err := sim.InjectMeasurement(fault); err != nil {
+			t.Fatalf("InjectMeasurement (still-present fault): %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pos, _ := sim.Position(); pos != PositionOpen {
+		t.Errorf("Position() = %v, want unchanged Open (no close ever happened)", pos)
+	}
+	if status := sim.ProtectionStatus(); status.State != ProtectionNormal {
+		t.Errorf("ProtectionStatus().State = %v, want unchanged Normal (no spurious re-trip)", status.State)
+	}
+	if status := sim.AutoRecloseStatus(); status.State != AutoRecloseReady {
+		t.Errorf("AutoRecloseStatus().State = %v, want unchanged Ready (no spurious autoreclose cycle)", status.State)
+	}
+
+	// Only a genuine Close lets the still-present fault trip it again, from
+	// a fresh attempt 1.
+	cmd := Command{Target: PositionClosed, Source: "test"}
+	id, err := sim.Select(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Select(): %v", err)
+	}
+	if err := sim.Operate(ctx, id, cmd); err != nil {
+		t.Fatalf("Operate(): %v", err)
+	}
+	for {
+		ev := waitForEvent(t, ctx, events, EventPositionChanged)
+		if ev.Detail.(PositionChangedDetail).Position == PositionClosed {
+			break
+		}
+	}
+	if err := sim.InjectMeasurement(fault); err != nil {
+		t.Fatalf("InjectMeasurement (fault after manual close): %v", err)
+	}
+	trip := waitForEvent(t, ctx, events, EventTrip)
+	if trip.Detail.(TripDetail).Cause != CauseInstantaneous {
+		t.Errorf("trip cause = %v, want Instantaneous", trip.Detail.(TripDetail).Cause)
+	}
+	attempt := waitForEvent(t, ctx, events, EventAutoRecloseAttempt)
+	if got := attempt.Detail.(AutoRecloseAttemptDetail).Attempt; got != 1 {
+		t.Errorf("autoreclose attempt = %d, want 1 (a fresh cycle)", got)
+	}
+}
+
 // TestSimulator_SelectOperateCancel exercises the basic select-before-
 // operate flow and its interlocks/errors, using errors.AsType as
 // documented on InterlockError and UnknownSelectionError.
