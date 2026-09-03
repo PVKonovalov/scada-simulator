@@ -5,6 +5,7 @@ package telemetryserver
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,9 +32,30 @@ var liveEventKinds = []breaker.EventKind{
 	breaker.EventTrip,
 	breaker.EventAutoRecloseAttempt,
 	breaker.EventLockout,
+	breaker.EventAutoRecloseSucceeded,
 	breaker.EventSettingsChanged,
 	breaker.EventModeChanged,
 }
+
+// tripProtectionTagSuffix, autoRecloseFailedTagSuffix and
+// autoRecloseSucceededTagSuffix name the one-shot pulse tags pushed by
+// dataPointsForEvent alongside its usual statusPoints refresh — see that
+// function's doc comment. They carry no persistent value and are never part
+// of breakerSnapshot; TagsFor lists them explicitly so they can still be
+// provisioned ahead of time, the same way it does for controlTagSuffix.
+const (
+	tripProtectionTagSuffix       = ".trip.protection"
+	autoRecloseFailedTagSuffix    = ".autoreclose.false"
+	autoRecloseSucceededTagSuffix = ".autoreclose.true"
+)
+
+// positionTagSuffix names "<name>.position". Like the pulse tags above, it
+// is exempt from dedupeForBroadcast: EventPositionChanged deliberately
+// fires (see its doc comment in pkg/breaker/events.go) even when Operate is
+// a no-op, purely to confirm a command a client just issued — silently
+// dropping that confirmation because the position value didn't change would
+// defeat the entire point of sending it.
+const positionTagSuffix = ".position"
 
 // clientBuffer is how many updates a connected client's own channel
 // buffers before broadcast starts dropping the oldest queued one in favor
@@ -69,6 +91,16 @@ type TelemetryServer struct {
 
 	testMu   sync.Mutex      // guards testMode
 	testMode map[string]bool // whether each breaker (keyed by Config.Name) is currently in SupervisoryControl test mode; see SupervisoryControl and isTestMode
+
+	lastMu sync.Mutex           // guards last
+	last   map[string]lastPoint // last (value, quality) forward actually broadcast for each non-pulse tag key; see dedupeForBroadcast
+}
+
+// lastPoint is the (value, quality) pair last broadcast for one tag key, as
+// last actually sent it — see dedupeForBroadcast.
+type lastPoint struct {
+	value   float32
+	quality telemetry.DataPointQuality
 }
 
 // isTestMode reports whether name's breaker is currently in test mode (set
@@ -110,8 +142,10 @@ func NewTelemetryServer(ctx context.Context, breakers map[string]*breaker.Simula
 		pending:     make(map[string]breaker.SelectionID),
 		subscribers: make(map[int]chan *telemetry.SubstationUpdate),
 		testMode:    make(map[string]bool),
+		last:        make(map[string]lastPoint),
 	}
 	for name, sim := range breakers {
+		s.seedLast(breakerSnapshot(name, sim, false))
 		events, err := sim.Subscribe(ctx, liveEventKinds...)
 		if err != nil {
 			continue // breaker already closed; nothing to forward for it
@@ -121,11 +155,24 @@ func NewTelemetryServer(ctx context.Context, breakers map[string]*breaker.Simula
 	return s
 }
 
+// seedLast primes dedupeForBroadcast's cache with points' current (value,
+// quality), so the very first real event forwarded for a breaker is
+// filtered against its actual starting state (e.g. voltage/power sitting at
+// their startup default of 0) rather than an empty cache that would let
+// every one of that first event's tags through unconditionally.
+func (s *TelemetryServer) seedLast(points []*telemetry.DataPoint) {
+	s.lastMu.Lock()
+	defer s.lastMu.Unlock()
+	for _, p := range points {
+		s.last[p.GetKey()] = lastPoint{value: p.GetValue(), quality: p.GetQuality()}
+	}
+}
+
 // forward is the single, long-lived event-to-tag converter for one
 // breaker; see TelemetryServer's doc comment.
 func (s *TelemetryServer) forward(name string, sim *breaker.Simulator, events <-chan breaker.Event) {
 	for ev := range events {
-		points := dataPointsForEvent(name, sim, ev, s.isTestMode(name))
+		points := s.dedupeForBroadcast(dataPointsForEvent(name, sim, ev, s.isTestMode(name)))
 		if len(points) == 0 {
 			continue
 		}
@@ -133,6 +180,53 @@ func (s *TelemetryServer) forward(name string, sim *breaker.Simulator, events <-
 		s.logUpdate("update", update)
 		s.broadcast(update)
 	}
+}
+
+// dedupeForBroadcast drops every point whose (value, quality) exactly
+// matches the last one this server actually broadcast for its key, so a
+// breaker.Event that re-reads unchanged state (e.g. dataPointsForEvent's
+// statusPoints re-read alongside an unrelated tag's real change, or a
+// sustained fault injection re-feeding a measurement whose current changed
+// but whose voltage/power/frequency didn't — see
+// pkg/breaker.measurementChanged) never causes a duplicate push: the
+// simulator must not publish a tag unless its value or quality actually
+// changed. alwaysForward tags (the pulse tags, and "<name>.position" for its
+// idempotent-confirmation case) are exempt.
+func (s *TelemetryServer) dedupeForBroadcast(points []*telemetry.DataPoint) []*telemetry.DataPoint {
+	if len(points) == 0 {
+		return points
+	}
+
+	s.lastMu.Lock()
+	defer s.lastMu.Unlock()
+
+	kept := points[:0]
+	for _, p := range points {
+		if alwaysForward(p.GetKey()) {
+			kept = append(kept, p)
+			continue
+		}
+		cur := lastPoint{value: p.GetValue(), quality: p.GetQuality()}
+		if prev, ok := s.last[p.GetKey()]; ok && prev == cur {
+			continue
+		}
+		s.last[p.GetKey()] = cur
+		kept = append(kept, p)
+	}
+	return kept
+}
+
+// alwaysForward reports whether key must bypass dedupeForBroadcast: the
+// one-shot pulse tags (dataPointsForEvent's doc comment — they carry no
+// persistent value, so every occurrence must be forwarded even if
+// numerically identical to the last one) and "<name>.position" (see
+// positionTagSuffix's doc comment — its idempotent-confirmation push must
+// reach the client even when the position didn't change).
+func alwaysForward(key string) bool {
+	return strings.HasSuffix(key, tripProtectionTagSuffix) ||
+		strings.HasSuffix(key, autoRecloseFailedTagSuffix) ||
+		strings.HasSuffix(key, autoRecloseSucceededTagSuffix) ||
+		strings.HasSuffix(key, positionTagSuffix)
 }
 
 // broadcast sends update to every currently connected client.
@@ -255,6 +349,13 @@ func breakerSnapshot(name string, sim *breaker.Simulator, testMode bool) []*tele
 // quality, since it carries no quality of its own), even though SetMode
 // also emits EventPositionChanged: an ordinary position change is not a
 // mode change, and must not resend an unchanged ".mode" value.
+//
+// EventTrip/EventLockout/EventAutoRecloseSucceeded additionally push a
+// one-shot pulse tag (tripProtectionTagSuffix/autoRecloseFailedTagSuffix/
+// autoRecloseSucceededTagSuffix, value always true) alongside their
+// statusPoints refresh: unlike every other tag here, a pulse carries no
+// persistent value of its own — it just marks that the event happened —
+// so it is deliberately never part of breakerSnapshot's initial snapshot.
 func dataPointsForEvent(name string, sim *breaker.Simulator, ev breaker.Event, testMode bool) []*telemetry.DataPoint {
 	switch d := ev.Detail.(type) {
 	case breaker.PositionChangedDetail:
@@ -267,12 +368,35 @@ func dataPointsForEvent(name string, sim *breaker.Simulator, ev breaker.Event, t
 		_, quality := sim.Position()
 		quality = applyTestMode(quality, testMode)
 		return []*telemetry.DataPoint{intPoint(name+".mode", int(d.Mode), quality, ev.Timestamp)}
+	case breaker.TripDetail:
+		return append(statusPoints(name, sim, ev.Timestamp, testMode),
+			pulsePoint(name+tripProtectionTagSuffix, testMode, ev.Timestamp))
+	case breaker.LockoutDetail:
+		return append(statusPoints(name, sim, ev.Timestamp, testMode),
+			pulsePoint(name+autoRecloseFailedTagSuffix, testMode, ev.Timestamp))
+	case breaker.AutoRecloseSucceededDetail:
+		return append(statusPoints(name, sim, ev.Timestamp, testMode),
+			pulsePoint(name+autoRecloseSucceededTagSuffix, testMode, ev.Timestamp))
 	default:
-		// EventProtectionPickedUp/Trip/AutoRecloseAttempt/Lockout/
-		// SettingsChanged: rather than hand-decode each Detail type, just
-		// re-read the current protection/autoreclose status — cheap, and
-		// always exactly right.
+		// EventProtectionPickedUp/AutoRecloseAttempt/SettingsChanged: rather
+		// than hand-decode each Detail type, just re-read the current
+		// protection/autoreclose status — cheap, and always exactly right.
 		return statusPoints(name, sim, ev.Timestamp, testMode)
+	}
+}
+
+// pulsePoint builds a one-shot PROTECTION_EVENT pulse tag (always value 1 —
+// see dataPointsForEvent), distinct from every ordinary status/analog tag's
+// FLOAT/INTEGER/BOOLEAN typing precisely because it carries no persistent
+// value of its own, only an occurrence. Carries qds.QdsGood quality, plus
+// qds.QdsTest when testMode is true.
+func pulsePoint(key string, testMode bool, ts time.Time) *telemetry.DataPoint {
+	return &telemetry.DataPoint{
+		Key:       key,
+		Type:      telemetry.DataPointType_PROTECTION_EVENT,
+		Value:     1,
+		Quality:   qualityToProto(applyTestMode(qds.QdsGood, testMode)),
+		Timestamp: timestamppb.New(ts),
 	}
 }
 

@@ -44,6 +44,7 @@ enum DataPointType {
   FLOAT = 1;          // Float analog
   INTEGER = 2;        // 2-bits DI
   BOOLEAN = 3;        // 1bit DI
+  PROTECTION_EVENT = 4;
 }
 
 enum DataPointQuality {

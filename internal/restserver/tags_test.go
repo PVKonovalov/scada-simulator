@@ -70,6 +70,9 @@ func TestServer_Tags_ListsEveryBreakersTags(t *testing.T) {
 		"feeder-1.protection.state":    "boolean",
 		"feeder-1.autoreclose.attempt": "boolean",
 		"feeder-1.control":             "boolean",
+		"feeder-1.trip.protection":     "protection_event",
+		"feeder-1.autoreclose.false":   "protection_event",
+		"feeder-1.autoreclose.true":    "protection_event",
 		"feeder-2.position":            "integer",
 		"feeder-2.control":             "boolean",
 	}
@@ -87,7 +90,7 @@ func TestServer_Tags_ListsEveryBreakersTags(t *testing.T) {
 		}
 	}
 
-	const wantPerBreaker = 17 // position, mode, 3xcurrent, 3xvoltage, 3xpower, frequency, protection.state, protection.group, autoreclose.state, autoreclose.attempt, control
+	const wantPerBreaker = 20 // position, mode, 3xcurrent, 3xvoltage, 3xpower, frequency, protection.state, protection.group, autoreclose.state, autoreclose.attempt, control, trip.protection, autoreclose.false, autoreclose.true
 	if len(sub.Tags) != wantPerBreaker*2 {
 		t.Errorf("len(Tags) = %d, want %d (2 breakers x %d tags)", len(sub.Tags), wantPerBreaker*2, wantPerBreaker)
 	}

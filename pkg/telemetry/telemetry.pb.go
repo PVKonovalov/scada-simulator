@@ -25,10 +25,11 @@ const (
 type DataPointType int32
 
 const (
-	DataPointType_UNKNOWN DataPointType = 0 // Unknown ???
-	DataPointType_FLOAT   DataPointType = 1 // Float analog
-	DataPointType_INTEGER DataPointType = 2 // 2-bits DI
-	DataPointType_BOOLEAN DataPointType = 3 // 1bit DI
+	DataPointType_UNKNOWN          DataPointType = 0 // Unknown ???
+	DataPointType_FLOAT            DataPointType = 1 // Float analog
+	DataPointType_INTEGER          DataPointType = 2 // 2-bits DI
+	DataPointType_BOOLEAN          DataPointType = 3 // 1bit DI
+	DataPointType_PROTECTION_EVENT DataPointType = 4
 )
 
 // Enum value maps for DataPointType.
@@ -38,12 +39,14 @@ var (
 		1: "FLOAT",
 		2: "INTEGER",
 		3: "BOOLEAN",
+		4: "PROTECTION_EVENT",
 	}
 	DataPointType_value = map[string]int32{
-		"UNKNOWN": 0,
-		"FLOAT":   1,
-		"INTEGER": 2,
-		"BOOLEAN": 3,
+		"UNKNOWN":          0,
+		"FLOAT":            1,
+		"INTEGER":          2,
+		"BOOLEAN":          3,
+		"PROTECTION_EVENT": 4,
 	}
 )
 
@@ -703,12 +706,13 @@ const file_api_scada_telemetry_proto_rawDesc = "" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x1b\n" +
 	"\tclient_id\x18\x04 \x01(\tR\bclientId\"m\n" +
 	"!ProtectionTerminalSetModeResponse\x12H\n" +
-	"\x06result\x18\x01 \x01(\x0e20.rdss.telemetry.v1.ScadaSupervisoryControlResultR\x06result*A\n" +
+	"\x06result\x18\x01 \x01(\x0e20.rdss.telemetry.v1.ScadaSupervisoryControlResultR\x06result*W\n" +
 	"\rDataPointType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05FLOAT\x10\x01\x12\v\n" +
 	"\aINTEGER\x10\x02\x12\v\n" +
-	"\aBOOLEAN\x10\x03*{\n" +
+	"\aBOOLEAN\x10\x03\x12\x14\n" +
+	"\x10PROTECTION_EVENT\x10\x04*{\n" +
 	"\x10DataPointQuality\x12\f\n" +
 	"\bQDS_GOOD\x10\x00\x12\x0f\n" +
 	"\vQDS_INVALID\x10\x01\x12\x14\n" +

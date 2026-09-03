@@ -36,6 +36,10 @@ const (
 	// EventLockout fires when the autoreclose sequence enters Lockout.
 	// Detail is LockoutDetail.
 	EventLockout
+	// EventAutoRecloseSucceeded fires when the autoreclose sequence's
+	// reclaim timer elapses without a further trip, returning it to Ready
+	// with the breaker back in service. Detail is AutoRecloseSucceededDetail.
+	EventAutoRecloseSucceeded
 	// EventSettingsChanged fires when protection settings are edited, or
 	// the active settings group changes. Detail is SettingsChangedDetail.
 	EventSettingsChanged
@@ -63,6 +67,8 @@ func (k EventKind) String() string {
 		return "AutoRecloseAttempt"
 	case EventLockout:
 		return "Lockout"
+	case EventAutoRecloseSucceeded:
+		return "AutoRecloseSucceeded"
 	case EventSettingsChanged:
 		return "SettingsChanged"
 	case EventControlRejected:
@@ -121,6 +127,13 @@ type AutoRecloseAttemptDetail struct {
 // LockoutDetail is the Event.Detail for EventLockout.
 type LockoutDetail struct {
 	// Attempts is the number of reclose attempts made before lockout.
+	Attempts int
+}
+
+// AutoRecloseSucceededDetail is the Event.Detail for EventAutoRecloseSucceeded.
+type AutoRecloseSucceededDetail struct {
+	// Attempts is the number of reclose attempts made before the sequence
+	// succeeded.
 	Attempts int
 }
 

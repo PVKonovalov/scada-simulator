@@ -85,6 +85,59 @@ func TestSimulator_TripAndReclose(t *testing.T) {
 	if status := sim.ProtectionStatus(); status.State != ProtectionNormal {
 		t.Errorf("ProtectionStatus().State = %v, want Normal", status.State)
 	}
+
+	succeeded := waitForEvent(t, ctx, events, EventAutoRecloseSucceeded)
+	if attempts := succeeded.Detail.(AutoRecloseSucceededDetail).Attempts; attempts != 1 {
+		t.Errorf("AutoRecloseSucceededDetail.Attempts = %d, want 1", attempts)
+	}
+	if status := sim.AutoRecloseStatus(); status.State != AutoRecloseReady {
+		t.Errorf("AutoRecloseStatus().State = %v, want Ready", status.State)
+	}
+}
+
+// TestSimulator_MeasurementChangedOnlyOnRealChange checks that
+// EventMeasurementChanged is only published when an injected measurement
+// actually differs from the previously stored one — repeating the exact
+// same reading (as internal/faultsimserver's sustain loop does for a
+// persistent fault) must not flood Subscribe clients with duplicate
+// updates, but a genuinely different reading must still be reported.
+func TestSimulator_MeasurementChangedOnlyOnRealChange(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sim := New(ctx, Config{InitialPosition: PositionClosed})
+	defer sim.Close()
+
+	events, err := sim.Subscribe(ctx, EventMeasurementChanged)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	m := Measurement{Current: PhaseValues{A: 100, B: 100, C: 100}}
+	if err := sim.InjectMeasurement(m); err != nil {
+		t.Fatalf("InjectMeasurement: %v", err)
+	}
+	waitForEvent(t, ctx, events, EventMeasurementChanged)
+
+	// Same reading again: must not publish a second event.
+	if err := sim.InjectMeasurement(m); err != nil {
+		t.Fatalf("InjectMeasurement (repeat): %v", err)
+	}
+	select {
+	case ev := <-events:
+		t.Errorf("unexpected event for an unchanged measurement: %+v", ev)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// A genuinely different reading must still be published.
+	m.Current.A = 150
+	if err := sim.InjectMeasurement(m); err != nil {
+		t.Fatalf("InjectMeasurement (changed): %v", err)
+	}
+	changed := waitForEvent(t, ctx, events, EventMeasurementChanged)
+	if got := changed.Detail.(Measurement).Current.A; got != 150 {
+		t.Errorf("changed event Current.A = %v, want 150", got)
+	}
 }
 
 // TestSimulator_LockoutRejectsManualClose checks that Select/Operate reject

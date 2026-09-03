@@ -153,6 +153,9 @@ across multiple emulated breakers.
 | `<name>.protection.group` | `ProtectionStatus()` | 1–4 | boolean (1-bit DI) |
 | `<name>.autoreclose.state` | `AutoRecloseStatus()` | `Ready` / `DeadTime` / `Closing` / `Reclaim` / `Lockout` | boolean (1-bit DI) |
 | `<name>.autoreclose.attempt` | `AutoRecloseStatus()` | 0, 1, 2, … | boolean (1-bit DI) |
+| `<name>.trip.protection` | *(pulse — see below)* | `1` (true) whenever the protection relay trips the breaker | protection_event |
+| `<name>.autoreclose.false` | *(pulse — see below)* | `1` (true) whenever autoreclose exhausts its attempts and reaches Lockout | protection_event |
+| `<name>.autoreclose.true` | *(pulse — see below)* | `1` (true) whenever autoreclose's reclaim timer elapses without a further trip, back in service | protection_event |
 
 `<name>.position` and `<name>.mode` are the only tags reported as `integer`:
 `position` is this package's one point with true double-point semantics
@@ -188,6 +191,20 @@ mechanisms are independent and can both mark `qds.QdsTest` at once.
 `ProtectionTerminalSetModeRequest` accepts, mapping its `ProtectionTerminalMode` enum onto
 `BreakerController.SetMode` (`internal/telemetryserver/control.go`'s
 `ProtectionTerminalSetMode`).
+
+`<name>.trip.protection`, `<name>.autoreclose.false` and
+`<name>.autoreclose.true` are one-shot pulse tags, unlike every other tag
+above: they carry no persistent value of their own, only ever report `1`
+(true), and are pushed exactly once at the moment the underlying event
+happens (a protection trip; autoreclose reaching Lockout; autoreclose's
+reclaim timer elapsing successfully) — never as part of `Subscribe`'s
+initial snapshot. `GET /api/external/telemetry/tags` still lists all three
+so a caller can provision them ahead of time, the same way it does for the
+write-only `<name>.control` tag. They are the only tags reported as
+`protection_event` (`api/scada/telemetry.proto`'s `DataPointType`), rather
+than `boolean` like every other 1-bit tag — a distinct wire type flags them
+as a discrete occurrence, not a level-state a client should compare against
+its previous value.
 
 ## Running the example
 

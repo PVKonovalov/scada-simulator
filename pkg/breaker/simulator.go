@@ -245,6 +245,8 @@ func (s *Simulator) emit(st *simState, kind EventKind, detail any) {
 		st.logger.Warnf("breaker[%s]: protection trip: %+v", st.name, detail)
 	case EventLockout:
 		st.logger.Errorf("breaker[%s]: autoreclose lockout: %+v", st.name, detail)
+	case EventAutoRecloseSucceeded:
+		st.logger.Infof("breaker[%s]: autoreclose succeeded: %+v", st.name, detail)
 	case EventAutoRecloseAttempt:
 		st.logger.Infof("breaker[%s]: autoreclose attempt: %+v", st.name, detail)
 	case EventControlRejected:
@@ -408,13 +410,20 @@ func (s *Simulator) InjectMeasurement(m Measurement) error {
 // Off: the function is not active, so it neither evaluates nor reports.
 // Pickup/trip themselves are further skipped whenever the breaker isn't
 // currently Closed (see the position check below) — the measurement is
-// still stored and reported either way.
+// still stored either way, but EventMeasurementChanged is only published
+// when m actually differs from the previously stored reading (see
+// measurementChanged) — otherwise a sustained fault injection (see
+// internal/faultsimserver), which re-feeds the same measurement on a
+// timer, would flood every Subscribe client with identical values forever.
 func (s *Simulator) evaluateProtection(st *simState, m Measurement) {
+	changed := measurementChanged(st.measurement, m)
 	st.measurement = m
 	if st.mode == ModeOff {
 		return
 	}
-	s.emit(st, EventMeasurementChanged, m)
+	if changed {
+		s.emit(st, EventMeasurementChanged, m)
+	}
 
 	now := time.Now()
 	var dt time.Duration
@@ -446,6 +455,20 @@ func (s *Simulator) evaluateProtection(st *simState, m Measurement) {
 
 	s.evaluateInstantaneous(st, settings, current)
 	s.evaluateTimeOvercurrent(st, settings, current, dt)
+}
+
+// measurementChanged reports whether b differs from a in any field a
+// Subscribe client actually observes — every Measurement field except
+// Timestamp, which always differs between calls and carries no SCADA-visible
+// value of its own.
+func measurementChanged(a, b Measurement) bool {
+	return a.Current != b.Current ||
+		a.Voltage != b.Voltage ||
+		a.ActivePower != b.ActivePower ||
+		a.ReactivePower != b.ReactivePower ||
+		a.ApparentPower != b.ApparentPower ||
+		a.Frequency != b.Frequency ||
+		a.Quality != b.Quality
 }
 
 // evaluateInstantaneous arms the stage-50 instantaneous stage's fixed-delay
@@ -599,7 +622,10 @@ func (s *Simulator) completeOperate(st *simState, target Position) {
 			st.arClosing = false
 			reclaim := st.autoReclose.OnCloseSucceeded()
 			s.after(reclaim, func(st *simState) {
-				st.autoReclose.OnReclaimElapsed()
+				attempts := st.autoReclose.Status().Attempt
+				if st.autoReclose.OnReclaimElapsed() {
+					s.emit(st, EventAutoRecloseSucceeded, AutoRecloseSucceededDetail{Attempts: attempts})
+				}
 			})
 		}
 	}
