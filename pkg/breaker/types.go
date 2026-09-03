@@ -84,9 +84,9 @@ func (p *Position) UnmarshalYAML(value *yaml.Node) error {
 
 // Mode reports a breaker's IEC 61850 Mod-style operating mode, per Edition
 // 1's Mod/Beh table: whether its protection/control function is active, and
-// if so, whether it drives real outputs (On/Test) or none (Blocked/Off).
-// Numeric values match that table directly; TEST/BLOCKED (4) is deliberately
-// not modelled by this simulator, so codes skip from 3 straight to 5.
+// if so, whether it drives real outputs (On/Test/TestBlocked's reporting) or
+// none (Blocked/Off), and whether control commands are accepted. Numeric
+// values match that table directly.
 type Mode uint8
 
 const (
@@ -101,6 +101,15 @@ const (
 	// really moves — except every tag it drives reports qds.QdsTest quality
 	// instead of Good.
 	ModeTest Mode = 3
+	// ModeTestBlocked: function active, control commands accepted (like
+	// Test), but — like Blocked — drives no physical output at all: a trip
+	// decision is still reported and a Select/Operate still confirms, but
+	// the breaker contact never actually moves. Every tag reports both
+	// qds.QdsTest and qds.QdsBlocked quality together (reduced by
+	// internal/telemetryserver's qualityToProto to DataPointQuality's
+	// distinct QDS_TEST_BLOCKED), per the table's "Function is operated in
+	// Test Mode but with no impact to the process."
+	ModeTestBlocked Mode = 4
 	// ModeOff: function not active at all — protection evaluation is
 	// skipped entirely and reports no updates, and control commands are
 	// rejected, same as Blocked.
@@ -116,6 +125,8 @@ func (m Mode) String() string {
 		return "Blocked"
 	case ModeTest:
 		return "Test"
+	case ModeTestBlocked:
+		return "TestBlocked"
 	case ModeOff:
 		return "Off"
 	default:

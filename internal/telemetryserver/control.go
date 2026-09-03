@@ -86,7 +86,11 @@ func (s *TelemetryServer) SupervisoryControl(ctx context.Context, req *telemetry
 	beforePos, blockQuality := sim.Position()
 
 	var result telemetry.ScadaSupervisoryControlResult
-	if blockQuality.Has(qds.QdsBlocked) {
+	if blockQuality.Has(qds.QdsBlocked) && !blockQuality.Has(qds.QdsTest) {
+		// QdsBlocked alone means ModeBlocked/ModeOff (control rejected).
+		// ModeTestBlocked sets QdsBlocked together with QdsTest — control is
+		// still accepted there (see pkg/breaker.ModeTestBlocked's doc
+		// comment), so it must not trip this pre-check.
 		s.logger.Warnf("telemetry: control %s rejected: breaker is blocked", req.GetKey())
 		result = telemetry.ScadaSupervisoryControlResult_ERROR_BLOCKED
 	} else {
@@ -115,10 +119,10 @@ func (s *TelemetryServer) SupervisoryControl(ctx context.Context, req *telemetry
 // changing a breaker's IEC 61850 Mod-style operating mode.
 //
 // Key must be "<breaker-name>.mode". Mode is mapped to breaker.Mode via
-// modeForProto (ERROR_NOT_SUPPORTED if it isn't one of
-// ProtectionTerminalMode's four modelled values) and passed to
+// modeForProto (ERROR_NOT_SUPPORTED only for MODE_UNKNOWN) and passed to
 // BreakerController.SetMode along with Reason. The resulting mode is
-// enforced by SupervisoryControl (ERROR_BLOCKED while Blocked or Off) and
+// enforced by SupervisoryControl (ERROR_BLOCKED while Blocked or Off — but
+// not TestBlocked, which accepts control; see its pre-check's comment) and
 // reflected on Subscribe via the same "<name>.mode" tag, exactly as if
 // SetMode had been called directly on the Simulator.
 //
@@ -157,8 +161,7 @@ func setModeResponse(result telemetry.ScadaSupervisoryControlResult) *telemetry.
 }
 
 // modeForProto maps a ProtectionTerminalMode to a breaker.Mode, reporting
-// ok=false for MODE_UNKNOWN or any value this simulator doesn't model (e.g.
-// IEC 61850's TEST/BLOCKED, 4).
+// ok=false only for MODE_UNKNOWN.
 func modeForProto(m telemetry.ProtectionTerminalMode) (breaker.Mode, bool) {
 	switch m {
 	case telemetry.ProtectionTerminalMode_MODE_ON:
@@ -167,6 +170,8 @@ func modeForProto(m telemetry.ProtectionTerminalMode) (breaker.Mode, bool) {
 		return breaker.ModeBlocked, true
 	case telemetry.ProtectionTerminalMode_MODE_TEST:
 		return breaker.ModeTest, true
+	case telemetry.ProtectionTerminalMode_MODE_TEST_BLOCKED:
+		return breaker.ModeTestBlocked, true
 	case telemetry.ProtectionTerminalMode_MODE_OFF:
 		return breaker.ModeOff, true
 	default:

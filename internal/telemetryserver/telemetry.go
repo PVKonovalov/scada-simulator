@@ -513,6 +513,11 @@ func qualityToProto(q qds.Quality) telemetry.DataPointQuality {
 		return telemetry.DataPointQuality_QDS_QUESTIONABLE
 	case q.Has(qds.QdsSubstituted):
 		return telemetry.DataPointQuality_QDS_SUBSTITUTED
+	case q.Has(qds.QdsBlocked) && q.Has(qds.QdsTest):
+		// pkg/breaker.ModeTestBlocked sets both bits at once — checked
+		// before the singular cases below so it isn't reduced to plain
+		// QDS_BLOCKED.
+		return telemetry.DataPointQuality_QDS_TEST_BLOCKED
 	case q.Has(qds.QdsBlocked):
 		return telemetry.DataPointQuality_QDS_BLOCKED
 	case q.Has(qds.QdsTest):

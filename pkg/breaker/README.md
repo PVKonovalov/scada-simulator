@@ -40,13 +40,18 @@ operating mode (see `Mode`'s constants in [`types.go`](types.go)):
 | `ModeOn` | 1 | accepted | drives real output | normal (`qds.QdsGood`) |
 | `ModeBlocked` | 2 | rejected (`*InterlockError`) | still evaluates and decides, but drives no physical output — the breaker contact does not move | normal, plus `qds.QdsBlocked` |
 | `ModeTest` | 3 | accepted, really operates | drives real output, exactly like `ModeOn` | every tag carries `qds.QdsTest` instead of Good |
+| `ModeTestBlocked` | 4 | accepted (like `ModeTest`), confirmed, but — like `ModeBlocked` — drives no physical output at all | still evaluates and decides, but drives no physical output — the breaker contact does not move, exactly like `ModeBlocked` | every tag carries both `qds.QdsTest` and `qds.QdsBlocked` together (`internal/telemetryserver`'s `qualityToProto` reduces that specific combination to `DataPointQuality`'s distinct `QDS_TEST_BLOCKED`, not the plain `QDS_BLOCKED`/`QDS_TEST` either bit alone would map to) |
 | `ModeOff` | 5 | rejected (`*InterlockError`) | not evaluated at all — `InjectMeasurement` still latches the reading but reports no event | `qds.QdsBlocked` |
 
-IEC 61850's TEST/BLOCKED (4) is deliberately not modelled — codes skip from
-3 to 5. The current mode is tracked internally (`simState.mode`/
+The current mode is tracked internally (`simState.mode`/
 `modeReason`) and reflected as `qds.QdsBlocked`/`qds.QdsTest` on the quality
 `Position()` returns, so it rides on the same measurement SCADA already
 polls, rather than being a separate status only visible some other way.
+`ModeTestBlocked` is the one mode whose control-acceptance and quality don't
+follow the same all-or-nothing split as the other three: `internal/
+telemetryserver`'s `SupervisoryControl` rejects with `ERROR_BLOCKED` only
+when `qds.QdsBlocked` is set *without* `qds.QdsTest` — `ModeBlocked`/
+`ModeOff`, not `ModeTestBlocked`.
 
 ## Protection
 

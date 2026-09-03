@@ -257,6 +257,61 @@ func TestSupervisoryControl_Blocked(t *testing.T) {
 	}
 }
 
+// TestSupervisoryControl_TestBlocked checks that ModeTestBlocked is
+// distinguishable from ModeBlocked at this layer too: SupervisoryControl
+// must accept the command (not ERROR_BLOCKED — its blocked pre-check is
+// QdsBlocked-without-QdsTest specifically), confirmed OK, but the breaker
+// still does not physically move; and ProtectionTerminalSetMode pushes
+// test.mode with QDS_TEST_BLOCKED quality, not QDS_BLOCKED or QDS_TEST.
+func TestSupervisoryControl_TestBlocked(t *testing.T) {
+	client, sim, cleanup := startTestServer(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Subscribe(ctx, &telemetry.SubstationRequest{Id: "unused"})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	if _, err := stream.Recv(); err != nil { // discard initial snapshot
+		t.Fatalf("Recv (snapshot): %v", err)
+	}
+
+	setResp, err := client.ProtectionTerminalSetMode(ctx, &telemetry.ProtectionTerminalSetModeRequest{
+		Key: "test.mode", Mode: telemetry.ProtectionTerminalMode_MODE_TEST_BLOCKED, Reason: "commissioning", ClientId: "unit-test",
+	})
+	if err != nil {
+		t.Fatalf("SetMode(TestBlocked): %v", err)
+	}
+	if setResp.GetResult() != telemetry.ScadaSupervisoryControlResult_OK {
+		t.Fatalf("SetMode(TestBlocked) result = %v, want OK", setResp.GetResult())
+	}
+	mode := waitForModeUpdate(t, stream)
+	if mode.GetValue() != float32(breaker.ModeTestBlocked) {
+		t.Errorf("test.mode value = %v, want %v (TestBlocked)", mode.GetValue(), breaker.ModeTestBlocked)
+	}
+	if mode.GetQuality() != telemetry.DataPointQuality_QDS_TEST_BLOCKED {
+		t.Errorf("test.mode quality = %v, want QDS_TEST_BLOCKED", mode.GetQuality())
+	}
+
+	if pos, _ := sim.Position(); pos != breaker.PositionClosed {
+		t.Fatalf("test breaker starts Closed by convention (startTestServer); got %v", pos)
+	}
+	ctrl, err := client.SupervisoryControl(ctx, &telemetry.ScadaSupervisoryControlRequest{
+		Key: "test.control", Value: 0, Select: true, Execute: true, ClientId: "unit-test",
+	})
+	if err != nil {
+		t.Fatalf("SupervisoryControl: %v", err)
+	}
+	if ctrl.GetResult() != telemetry.ScadaSupervisoryControlResult_OK {
+		t.Errorf("SupervisoryControl result while TestBlocked = %v, want OK (control accepted)", ctrl.GetResult())
+	}
+	if pos, _ := sim.Position(); pos != breaker.PositionClosed {
+		t.Errorf("Position() after SupervisoryControl while TestBlocked = %v, want still Closed (no physical output)", pos)
+	}
+}
+
 // TestSupervisoryControl_IdempotentStillPushesConfirmation checks that a
 // command matching the breaker's current position — a no-op, since nothing
 // physically moves — still produces a Subscribe update confirming it,
@@ -423,8 +478,8 @@ func TestSetMode_Errors(t *testing.T) {
 			want: telemetry.ScadaSupervisoryControlResult_ERROR_OBJECT_IS_NOT_FOUND,
 		},
 		{
-			name: "unsupported mode (TEST/BLOCKED, not modelled)",
-			req:  &telemetry.ProtectionTerminalSetModeRequest{Key: "test.mode", Mode: 4},
+			name: "unsupported mode (MODE_UNKNOWN)",
+			req:  &telemetry.ProtectionTerminalSetModeRequest{Key: "test.mode", Mode: telemetry.ProtectionTerminalMode_MODE_UNKNOWN},
 			want: telemetry.ScadaSupervisoryControlResult_ERROR_NOT_SUPPORTED,
 		},
 	}

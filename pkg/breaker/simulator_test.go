@@ -663,6 +663,69 @@ func TestSimulator_SetMode_BlockedInhibitsTrip(t *testing.T) {
 	}
 }
 
+// TestSimulator_SetMode_TestBlocked checks ModeTestBlocked's distinguishing
+// behavior against both ModeBlocked and ModeTest: like Blocked, a trip is
+// inhibited physically (the breaker contact never moves) even though the
+// protection decision still stands; unlike Blocked, Select/Operate are
+// accepted, not rejected — but even an accepted, confirmed Operate still
+// does not move the breaker. Quality carries both QdsTest and QdsBlocked.
+func TestSimulator_SetMode_TestBlocked(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sim := New(ctx, Config{
+		InitialPosition: PositionClosed,
+		SettingsGroups: []SettingsGroupConfig{{
+			Group:    0,
+			Settings: ProtectionSettings{InstantaneousPickup: 1000},
+		}},
+	})
+	defer sim.Close()
+
+	if err := sim.SetMode(ctx, ModeTestBlocked, "commissioning"); err != nil {
+		t.Fatalf("SetMode(TestBlocked): %v", err)
+	}
+	if got := sim.Mode(); got != ModeTestBlocked {
+		t.Fatalf("Mode() = %v, want TestBlocked", got)
+	}
+	if _, quality := sim.Position(); !quality.Has(qds.QdsTest) || !quality.Has(qds.QdsBlocked) {
+		t.Errorf("Position() quality = %v, want both QdsTest and QdsBlocked set", quality)
+	}
+
+	// Like Blocked: the protection decision still stands, but the breaker
+	// contact never moves.
+	if err := sim.InjectMeasurement(Measurement{Current: PhaseValues{A: 5000, B: 5000, C: 5000}}); err != nil {
+		t.Fatalf("InjectMeasurement: %v", err)
+	}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if sim.ProtectionStatus().State == ProtectionTripped {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := sim.ProtectionStatus().State; got != ProtectionTripped {
+		t.Fatalf("ProtectionStatus().State = %v, want ProtectionTripped", got)
+	}
+	if pos, _ := sim.Position(); pos != PositionClosed {
+		t.Errorf("Position() = %v, want Closed (TestBlocked must inhibit the physical trip)", pos)
+	}
+
+	// Unlike Blocked: Select/Operate are accepted (confirmed OK), but still
+	// do not move the breaker.
+	cmd := Command{Target: PositionOpen, Source: "test"}
+	id, err := sim.Select(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Select() while TestBlocked = %v, want accepted", err)
+	}
+	if err := sim.Operate(ctx, id, cmd); err != nil {
+		t.Fatalf("Operate() while TestBlocked = %v, want accepted", err)
+	}
+	if pos, _ := sim.Position(); pos != PositionClosed {
+		t.Errorf("Position() after Operate() while TestBlocked = %v, want still Closed (no physical output)", pos)
+	}
+}
+
 // isInterlockError reports whether err is an *InterlockError.
 func isInterlockError(err error) bool {
 	_, ok := errors.AsType[*InterlockError](err)

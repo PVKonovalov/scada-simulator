@@ -54,6 +54,7 @@ enum DataPointQuality {
   QDS_SUBSTITUTED = 3;
   QDS_BLOCKED = 4;
   QDS_TEST = 5;
+  QDS_TEST_BLOCKED = 6;
 }
 
 enum ScadaSupervisoryControlResult {
@@ -105,13 +106,12 @@ message ScadaSupervisoryControlRequest {
 }
 
 // ProtectionTerminalMode mirrors IEC 61850 Edition 1's Mod/Beh enumeration.
-// TEST_BLOCKED (4) is deliberately not modelled by this simulator, so
-// values skip from TEST (3) straight to OFF (5).
 enum ProtectionTerminalMode {
   MODE_UNKNOWN = 0;
   MODE_ON = 1;
   MODE_BLOCKED = 2;
   MODE_TEST = 3;
+  MODE_TEST_BLOCKED = 4;
   MODE_OFF = 5;
 }
 

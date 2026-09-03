@@ -86,6 +86,7 @@ const (
 	DataPointQuality_QDS_SUBSTITUTED  DataPointQuality = 3
 	DataPointQuality_QDS_BLOCKED      DataPointQuality = 4
 	DataPointQuality_QDS_TEST         DataPointQuality = 5
+	DataPointQuality_QDS_TEST_BLOCKED DataPointQuality = 6
 )
 
 // Enum value maps for DataPointQuality.
@@ -97,6 +98,7 @@ var (
 		3: "QDS_SUBSTITUTED",
 		4: "QDS_BLOCKED",
 		5: "QDS_TEST",
+		6: "QDS_TEST_BLOCKED",
 	}
 	DataPointQuality_value = map[string]int32{
 		"QDS_GOOD":         0,
@@ -105,6 +107,7 @@ var (
 		"QDS_SUBSTITUTED":  3,
 		"QDS_BLOCKED":      4,
 		"QDS_TEST":         5,
+		"QDS_TEST_BLOCKED": 6,
 	}
 )
 
@@ -200,16 +203,15 @@ func (ScadaSupervisoryControlResult) EnumDescriptor() ([]byte, []int) {
 }
 
 // ProtectionTerminalMode mirrors IEC 61850 Edition 1's Mod/Beh enumeration.
-// TEST_BLOCKED (4) is deliberately not modelled by this simulator, so
-// values skip from TEST (3) straight to OFF (5).
 type ProtectionTerminalMode int32
 
 const (
-	ProtectionTerminalMode_MODE_UNKNOWN ProtectionTerminalMode = 0
-	ProtectionTerminalMode_MODE_ON      ProtectionTerminalMode = 1
-	ProtectionTerminalMode_MODE_BLOCKED ProtectionTerminalMode = 2
-	ProtectionTerminalMode_MODE_TEST    ProtectionTerminalMode = 3
-	ProtectionTerminalMode_MODE_OFF     ProtectionTerminalMode = 5
+	ProtectionTerminalMode_MODE_UNKNOWN      ProtectionTerminalMode = 0
+	ProtectionTerminalMode_MODE_ON           ProtectionTerminalMode = 1
+	ProtectionTerminalMode_MODE_BLOCKED      ProtectionTerminalMode = 2
+	ProtectionTerminalMode_MODE_TEST         ProtectionTerminalMode = 3
+	ProtectionTerminalMode_MODE_TEST_BLOCKED ProtectionTerminalMode = 4
+	ProtectionTerminalMode_MODE_OFF          ProtectionTerminalMode = 5
 )
 
 // Enum value maps for ProtectionTerminalMode.
@@ -219,14 +221,16 @@ var (
 		1: "MODE_ON",
 		2: "MODE_BLOCKED",
 		3: "MODE_TEST",
+		4: "MODE_TEST_BLOCKED",
 		5: "MODE_OFF",
 	}
 	ProtectionTerminalMode_value = map[string]int32{
-		"MODE_UNKNOWN": 0,
-		"MODE_ON":      1,
-		"MODE_BLOCKED": 2,
-		"MODE_TEST":    3,
-		"MODE_OFF":     5,
+		"MODE_UNKNOWN":      0,
+		"MODE_ON":           1,
+		"MODE_BLOCKED":      2,
+		"MODE_TEST":         3,
+		"MODE_TEST_BLOCKED": 4,
+		"MODE_OFF":          5,
 	}
 )
 
@@ -712,14 +716,15 @@ const file_api_scada_telemetry_proto_rawDesc = "" +
 	"\x05FLOAT\x10\x01\x12\v\n" +
 	"\aINTEGER\x10\x02\x12\v\n" +
 	"\aBOOLEAN\x10\x03\x12\x14\n" +
-	"\x10PROTECTION_EVENT\x10\x04*{\n" +
+	"\x10PROTECTION_EVENT\x10\x04*\x91\x01\n" +
 	"\x10DataPointQuality\x12\f\n" +
 	"\bQDS_GOOD\x10\x00\x12\x0f\n" +
 	"\vQDS_INVALID\x10\x01\x12\x14\n" +
 	"\x10QDS_QUESTIONABLE\x10\x02\x12\x13\n" +
 	"\x0fQDS_SUBSTITUTED\x10\x03\x12\x0f\n" +
 	"\vQDS_BLOCKED\x10\x04\x12\f\n" +
-	"\bQDS_TEST\x10\x05*\xcc\x01\n" +
+	"\bQDS_TEST\x10\x05\x12\x14\n" +
+	"\x10QDS_TEST_BLOCKED\x10\x06*\xcc\x01\n" +
 	"\x1dScadaSupervisoryControlResult\x12\x06\n" +
 	"\x02OK\x10\x00\x12\x11\n" +
 	"\rERROR_TIMEOUT\x10\x01\x12\x11\n" +
@@ -728,12 +733,13 @@ const file_api_scada_telemetry_proto_rawDesc = "" +
 	"\x13ERROR_NOT_SUPPORTED\x10\x04\x12\x1d\n" +
 	"\x19ERROR_OBJECT_IS_NOT_FOUND\x10\x05\x12\x1b\n" +
 	"\x17ERROR_ITEM_IS_NOT_FOUND\x10\x06\x12\x16\n" +
-	"\x12ERROR_NOT_SELECTED\x10\a*f\n" +
+	"\x12ERROR_NOT_SELECTED\x10\a*}\n" +
 	"\x16ProtectionTerminalMode\x12\x10\n" +
 	"\fMODE_UNKNOWN\x10\x00\x12\v\n" +
 	"\aMODE_ON\x10\x01\x12\x10\n" +
 	"\fMODE_BLOCKED\x10\x02\x12\r\n" +
-	"\tMODE_TEST\x10\x03\x12\f\n" +
+	"\tMODE_TEST\x10\x03\x12\x15\n" +
+	"\x11MODE_TEST_BLOCKED\x10\x04\x12\f\n" +
 	"\bMODE_OFF\x10\x052\xf1\x02\n" +
 	"\x0fTelemetryStream\x12X\n" +
 	"\tSubscribe\x12$.rdss.telemetry.v1.SubstationRequest\x1a#.rdss.telemetry.v1.SubstationUpdate0\x01\x12{\n" +

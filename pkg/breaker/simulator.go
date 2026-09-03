@@ -532,17 +532,17 @@ func (s *Simulator) evaluateTimeOvercurrent(st *simState, settings ProtectionSet
 
 // trip issues a protection trip: it emits EventTrip, opens the breaker (if
 // not already open) and, once the breaker is confirmed open, hands off to
-// onBreakerOpen to consider an autoreclose attempt. While Mode is Blocked,
-// the protection decision above still stands (protectionState, EventTrip)
-// but no physical output is driven — the breaker contact does not move —
-// per Mode's documented Blocked semantics.
+// onBreakerOpen to consider an autoreclose attempt. While Mode is Blocked or
+// TestBlocked, the protection decision above still stands (protectionState,
+// EventTrip) but no physical output is driven — the breaker contact does
+// not move — per Mode's documented Blocked/TestBlocked semantics.
 func (s *Simulator) trip(st *simState, cause ProtectionCause, current float64, operateTime time.Duration) {
 	st.protectionState = ProtectionTripped
 	st.stage51Progress = 0
 	st.instArmed = false
 	s.emit(st, EventTrip, TripDetail{Cause: cause, Current: current, OperateTime: operateTime})
 
-	if st.mode == ModeBlocked {
+	if st.mode == ModeBlocked || st.mode == ModeTestBlocked {
 		return
 	}
 
@@ -732,6 +732,15 @@ func (s *Simulator) doOperate(st *simState, id SelectionID, cmd Command) error {
 	}
 	delete(st.selections, id)
 
+	if st.mode == ModeTestBlocked {
+		// Control is accepted (unlike Blocked/Off above) and confirmed, but
+		// drives no physical output at all — the breaker contact never
+		// moves, matching the table's "Function is operated in Test Mode
+		// but with no impact to the process."
+		s.emit(st, EventPositionChanged, PositionChangedDetail{Position: st.position, Quality: st.posQuality})
+		return nil
+	}
+
 	if st.position == sel.cmd.Target && st.position != PositionIntermediate {
 		// Idempotent: already at the requested position. Still emit a
 		// confirmation so a SCADA client that just issued the command sees
@@ -826,6 +835,13 @@ func (s *Simulator) setMode(st *simState, mode Mode, reason string) {
 		st.posQuality.Set(qds.QdsBlocked)
 	case ModeTest:
 		st.posQuality.Clear(qds.QdsBlocked)
+		st.posQuality.Set(qds.QdsTest)
+	case ModeTestBlocked:
+		// Both bits at once — internal/telemetryserver's qualityToProto
+		// reduces this specific combination to DataPointQuality's distinct
+		// QDS_TEST_BLOCKED, not the plain QDS_BLOCKED/QDS_TEST a client
+		// would otherwise read.
+		st.posQuality.Set(qds.QdsBlocked)
 		st.posQuality.Set(qds.QdsTest)
 	default: // ModeOn
 		st.posQuality.Clear(qds.QdsBlocked)
