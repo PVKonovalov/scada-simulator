@@ -30,9 +30,9 @@ install_py_modules:
 install: install_protoc install_go_modules install_py_modules
 
 
-grpc.go: api/scada/telemetry.proto api/scada/faultsim.proto
+grpc.go: api/scada/telemetry.proto api/scada/faultsim.proto api/rtdb/rdss_dms_rtdb_api.proto
 # Used ./ output path because of go_package option in .proto files
-	$(PROTOC) --go_out=./pkg/ --go-grpc_out=./pkg/ api/scada/telemetry.proto api/scada/faultsim.proto
+	$(PROTOC) --go_out=./pkg/ --go-grpc_out=./pkg/ api/scada/telemetry.proto api/scada/faultsim.proto api/rtdb/rdss_dms_rtdb_api.proto
 
 
 .PHONY: go.mod grpc.go

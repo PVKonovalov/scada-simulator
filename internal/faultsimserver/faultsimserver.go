@@ -14,6 +14,12 @@
 // replaces it. A fault only clears when the caller explicitly sends a
 // lower value (e.g. 0), exactly mirroring how a real fault stays on the
 // line until it's actually cleared, not until some fixed timer expires.
+//
+// A breaker may also be fed continuously by another source (see
+// internal/rtdbfeed, wired in via WithHandoff). An active injection here
+// always wins over that source (see Overriding); for such a breaker, an
+// injection with zero current on all three phases doesn't sustain but
+// releases the breaker back to it instead.
 package faultsimserver
 
 import (
@@ -43,6 +49,8 @@ type FaultSimulatorServer struct {
 	breakers map[string]*breaker.Simulator // configured breakers, keyed by Config.Name
 	logger   *llog.LevelLog                // logger for injected-fault activity
 
+	handoff func(name string) bool // reports whether another feed takes over a breaker released by a zero-current injection; nil = none
+
 	sustainMu     sync.Mutex                    // guards sustainCancel
 	sustainCancel map[string]context.CancelFunc // per-breaker cancel for its current sustain goroutine, keyed by Config.Name
 }
@@ -61,11 +69,35 @@ func NewFaultSimulatorServer(ctx context.Context, breakers map[string]*breaker.S
 	}
 }
 
+// WithHandoff sets handoff, which reports whether the named breaker has
+// another continuous measurement feed (e.g. internal/rtdbfeed) able to take
+// over when this server stops sustaining it. For such a breaker, an
+// injection with zero current on all three phases is fed once and then
+// released rather than sustained, so Overriding turns false and that feed
+// resumes. Must be called before the server starts serving; returns s for
+// chaining.
+func (s *FaultSimulatorServer) WithHandoff(handoff func(name string) bool) *FaultSimulatorServer {
+	s.handoff = handoff
+	return s
+}
+
+// Overriding reports whether an injection is currently being sustained for
+// the named breaker, i.e. whether any other measurement feed for it must
+// stand back.
+func (s *FaultSimulatorServer) Overriding(name string) bool {
+	s.sustainMu.Lock()
+	defer s.sustainMu.Unlock()
+	_, ok := s.sustainCancel[name]
+	return ok
+}
+
 // InjectMeasurement implements faultsim.FaultSimulatorServer, converting
 // req into a breaker.Measurement, feeding it to the named breaker
 // immediately via EmulatorFeed.InjectMeasurement, and then sustaining it
 // (see sustain) so it keeps being the breaker's simulated ongoing analog
-// condition until a later call replaces it. ERROR_BREAKER_NOT_FOUND is
+// condition until a later call replaces it — except that, for a breaker
+// handed off to another feed (see WithHandoff), a zero-current injection is
+// fed once and released instead (see release). ERROR_BREAKER_NOT_FOUND is
 // returned if Breaker doesn't name a configured breaker.
 //
 // Every call is logged at Info level twice: the incoming request (breaker
@@ -89,7 +121,11 @@ func (s *FaultSimulatorServer) InjectMeasurement(_ context.Context, req *faultsi
 		ApparentPower: req.GetApparentPower(),
 		Frequency:     req.GetFrequency(),
 	}
-	s.sustain(req.GetBreaker(), sim, m)
+	if s.handoff != nil && s.handoff(req.GetBreaker()) && m.Current == (breaker.PhaseValues{}) {
+		s.release(req.GetBreaker(), sim, m)
+	} else {
+		s.sustain(req.GetBreaker(), sim, m)
+	}
 
 	s.logger.Infof("faultsim: inject_measurement %s result=%s", req.GetBreaker(), faultsim.InjectMeasurementResult_OK)
 	return injectMeasurementResponse(faultsim.InjectMeasurementResult_OK), nil
@@ -127,6 +163,22 @@ func (s *FaultSimulatorServer) sustain(name string, sim *breaker.Simulator, m br
 			}
 		}
 	}()
+}
+
+// release stops any sustain goroutine running for name, feeds m to sim
+// once, and leaves name un-sustained so Overriding reports false and the
+// handoff feed (see WithHandoff) takes the breaker back over.
+func (s *FaultSimulatorServer) release(name string, sim *breaker.Simulator, m breaker.Measurement) {
+	s.sustainMu.Lock()
+	if cancel, ok := s.sustainCancel[name]; ok {
+		cancel()
+		delete(s.sustainCancel, name)
+	}
+	s.sustainMu.Unlock()
+
+	m.Timestamp = time.Now()
+	_ = sim.InjectMeasurement(m) // always returns nil; see EmulatorFeed.InjectMeasurement
+	s.logger.Infof("faultsim: inject_measurement %s released to handoff feed (zero current)", name)
 }
 
 // phaseValues converts a faultsim.PhaseValues to a breaker.PhaseValues,

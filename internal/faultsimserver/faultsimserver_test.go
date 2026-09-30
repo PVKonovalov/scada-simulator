@@ -302,3 +302,50 @@ func TestInjectMeasurement_UnknownBreaker(t *testing.T) {
 		t.Errorf("Measurement() = %+v, want unchanged %+v", got, before)
 	}
 }
+
+// TestInjectMeasurement_Handoff checks that a zero-current injection
+// releases (rather than sustains) a breaker only when a handoff feed
+// handles it, and that any other injection keeps Overriding true.
+func TestInjectMeasurement_Handoff(t *testing.T) {
+	tests := []struct {
+		name         string
+		handoff      func(string) bool
+		current      float64
+		wantOverride bool
+		wantCurrentA float64
+	}{
+		{"no handoff, zero current sustains", nil, 0, true, 0},
+		{"handoff declines, zero current sustains", func(string) bool { return false }, 0, true, 0},
+		{"handoff, zero current releases", func(string) bool { return true }, 0, false, 0},
+		{"handoff, nonzero current sustains", func(string) bool { return true }, 100, true, 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			sim := breaker.New(ctx, breaker.Config{Name: "test", InitialPosition: breaker.PositionClosed})
+			defer sim.Close()
+			s := NewFaultSimulatorServer(ctx, map[string]*breaker.Simulator{"test": sim}, llog.Logger).WithHandoff(tt.handoff)
+
+			// A prior fault must be superseded either way.
+			if _, err := s.InjectMeasurement(ctx, &faultsim.InjectMeasurementRequest{Breaker: "test", Current: &faultsim.PhaseValues{A: 50}}); err != nil {
+				t.Fatalf("InjectMeasurement: %v", err)
+			}
+			if !s.Overriding("test") {
+				t.Fatalf("Overriding after first injection = false, want true")
+			}
+
+			req := &faultsim.InjectMeasurementRequest{Breaker: "test", Current: &faultsim.PhaseValues{A: tt.current, B: tt.current, C: tt.current}, Voltage: &faultsim.PhaseValues{A: 230}}
+			if _, err := s.InjectMeasurement(ctx, req); err != nil {
+				t.Fatalf("InjectMeasurement: %v", err)
+			}
+			if got := s.Overriding("test"); got != tt.wantOverride {
+				t.Errorf("Overriding = %v, want %v", got, tt.wantOverride)
+			}
+			time.Sleep(2 * sustainInterval) // a cancelled sustain goroutine must not re-feed the old value
+			if m := sim.Measurement(); m.Current.A != tt.wantCurrentA || m.Voltage.A != 230 {
+				t.Errorf("measurement = %+v, want current.a %v and voltage.a 230", m, tt.wantCurrentA)
+			}
+		})
+	}
+}

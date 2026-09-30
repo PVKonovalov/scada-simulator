@@ -1,6 +1,12 @@
 package configuration
 
-import "scada-simulator/pkg/breaker"
+import (
+	"time"
+
+	"scada-simulator/pkg/breaker"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Logging configures the application's leveled logger.
 type Logging struct {
@@ -52,5 +58,63 @@ type Configuration struct {
 	// each with its own name, initial position, protection settings,
 	// autoreclose behaviour, and mechanical/frequency constants. The number
 	// of breakers emulated is simply len(Breakers).
-	Breakers []breaker.Config `yaml:"breakers"`
+	Breakers []BreakerConfig `yaml:"breakers"`
+	// Rtdb configures the optional, read-only RTDB measurement feed (see
+	// internal/rtdbfeed) that drives breakers' analog inputs from RTDB
+	// points named by each breaker's BreakerConfig.RtdbMapping.
+	Rtdb Rtdb `yaml:"rtdb"`
+}
+
+// Rtdb configures the gRPC connection to the RTDB (rdss-dms-rtdb) that
+// internal/rtdbfeed subscribes to. The feed only ever reads from the RTDB
+// (IsExists/Subscribe) — it never writes to it; the SCADA→RTDB direction
+// stays with rdss-dms-rtdb's rtdb-scada-grpc-client bridge. Host/Port are
+// kept flat (not nested under a "grpc" key) so their env-var overrides are
+// SCADA_SIMULATOR_RTDB_HOST/_PORT rather than colliding with
+// Dms.Api.Scada.Grpc's SCADA_SIMULATOR_GRPC_HOST/_PORT.
+type Rtdb struct {
+	// Enabled turns the RTDB feed on; when false every RtdbMapping is ignored.
+	Enabled bool `yaml:"enabled" env:"true"`
+	// Host is the RTDB gRPC server's host.
+	Host string `yaml:"host" env:"true"`
+	// Port is the RTDB gRPC server's port.
+	Port int `yaml:"port" env:"true"`
+	// ClientId identifies this simulator in the RTDB's logs.
+	ClientId string `yaml:"client_id" env:"true"`
+	// ReconnectInterval is how long to wait between connection attempts,
+	// both during initial startup and after an established stream breaks
+	// (YAML duration string, e.g. "5s"; YAML-only, no env override).
+	ReconnectInterval time.Duration `yaml:"reconnect_interval"`
+}
+
+// BreakerConfig is one breakers: list entry: a pkg/breaker.Config plus
+// this application's own per-breaker extensions, kept out of pkg/breaker
+// so that package stays unaware of the RTDB.
+type BreakerConfig struct {
+	// Config is the breaker simulator's own configuration.
+	breaker.Config
+	// RtdbMapping maps an internal analog tag leaf (the part of the tag
+	// after "<breaker-name>.", e.g. "current.a" or "power.active") to the
+	// RTDB point key whose value feeds it, e.g.
+	// "current.a": "case-1-branch-35-i-from". Several leaves may share one
+	// RTDB key. Only used when Rtdb.Enabled is true.
+	RtdbMapping map[string]string `yaml:"rtdb_mapping"`
+}
+
+// UnmarshalYAML decodes a BreakerConfig. breaker.Config has its own
+// UnmarshalYAML, which would otherwise be promoted to BreakerConfig and
+// silently drop rtdb_mapping, so both halves are decoded from the same
+// node explicitly.
+func (c *BreakerConfig) UnmarshalYAML(value *yaml.Node) error {
+	if err := value.Decode(&c.Config); err != nil {
+		return err
+	}
+	var ext struct {
+		RtdbMapping map[string]string `yaml:"rtdb_mapping"`
+	}
+	if err := value.Decode(&ext); err != nil {
+		return err
+	}
+	c.RtdbMapping = ext.RtdbMapping
+	return nil
 }

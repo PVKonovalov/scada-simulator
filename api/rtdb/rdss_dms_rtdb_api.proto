@@ -1,0 +1,473 @@
+// RTDB gRPC API
+// ------------------------------
+// Version: 1.0.0
+// Release date: 27.07.2026
+// OrxaGrid, 2026
+//
+
+syntax = "proto3";
+
+option go_package = "rtdb/";
+package rdss.dms.rtdb.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service Rtdb {
+  // Health check - reports the server's build version, when it started, and how many
+  // points it currently holds. Side-effect-free; intended as a lightweight liveness
+  // probe for clients that previously had to stand one in with an unrelated RPC like
+  // GetAvailableSources.
+  rpc GetHealth(RTDBEmptyRequest) returns (RTDBHealthResponse);
+
+  // Reload configuration from the database
+  rpc ReloadConfiguration(RTDBEmptyRequest) returns (RTDBEmptyResponse);
+
+  // Checking if item exists in RTDB
+  rpc IsExists(RTDBItemExistsRequest) returns (RTDBItemExistsResponse);
+
+  // Retrieves information about all items created in the RTDB.
+  rpc GetAllItems(RTDBEmptyRequest) returns (RTDBItemsResponse);
+
+  // Retrieves information about items by a specified list of identifiers.
+  // If the item is not created, its data will not be included in the response.
+  rpc GetItems(RTDBKeysRequest) returns (RTDBItemsResponse);
+
+  // Retrieves the last data received from every source of each specified point, keyed by source
+  // identifier. Unlike GetItems, a point identifier not found in the RTDB is omitted from the
+  // response rather than created.
+  rpc GetItemSources(RTDBKeysRequest) returns (RTDBItemSourcesResponse);
+
+  // Creates items in the RTDB with default data.
+  // If the item has been created earlier, information about it will be included in the response.
+  rpc AddItems(RTDBAddItemsRequest) returns (RTDBKeysResponse);
+
+  // Removes items and data from the RTDB.
+  // If the item is associated with a source, the link with it is removed from the source.
+  rpc RemoveItems(RTDBKeysRequest) returns (RTDBEmptyResponse);
+
+  // Performs writing data to the specified items.
+  // If the item with the specified identifier is not found, the method will
+  // create a item with the passed data.
+  rpc WriteData(RTDBWriteItemsRequest) returns (RTDBEmptyResponse);
+
+  // Performs Supervisory Control for the specified tag.
+  rpc SupervisoryControl(RTDBSupervisoryControlRequest) returns (RTDBSupervisoryControlResponse);
+
+  // Performs Supervisory Control for the specified object mrid.
+  rpc SupervisoryControlObject(RTDBSupervisoryControlObjectRequest) returns (RTDBSupervisoryControlResponse);
+
+  // Set current source for selected point
+  rpc SetCurrentSource(RTDBSetCurrentSourceRequest) returns (RTDBEmptyResponse);
+
+  // Register new source
+  // A new data source is added for the selected points. If the point identifier is ALL, the new source is added
+  // for all points. A dictionary entry for existing sources is also added.
+  rpc RegisterSource(RTDBRegisterSourceRequest) returns (RTDBEmptyResponse);
+
+  // Gets a list of available sources
+  rpc GetAvailableSources(RTDBEmptyRequest) returns (RTDBSourcesResponse);
+
+  // Set manual entered data for the selected point
+  rpc SetManualEnteredData(RTDBSetManualEnteredDataRequest) returns (RTDBEmptyResponse);
+
+  // Retrieves the last manually entered (MED) value for each specified point. A point not found in
+  // the RTDB, or with no MED value recorded yet, is omitted from the response rather than created -
+  // the same convention GetItemSources/GetThresholds already follow.
+  rpc GetManualEnteredData(RTDBKeysRequest) returns (RTDBItemsResponse);
+
+  // Set quality descriptor for selected points
+  rpc SetQuality(RTDBSetQualityRequest) returns (RTDBEmptyResponse);
+
+  // Retrieves the configured thresholds (upper/lower warning/alarm limits) for each specified point,
+  // keyed by threshold type. A point with no configured thresholds, or not found in the RTDB, is
+  // omitted from the response rather than created.
+  rpc GetThresholds(RTDBKeysRequest) returns (RTDBThresholdsResponse);
+
+  // Adds a threshold of the given type for a point. Fails with ALREADY_EXISTS if a threshold of that
+  // type is already configured for the point - use UpdateThreshold to change it instead.
+  rpc AddThreshold(RTDBThreshold) returns (RTDBEmptyResponse);
+
+  // Updates the value of an existing threshold. Fails with NOT_FOUND if no threshold of that type is
+  // configured for the point.
+  rpc UpdateThreshold(RTDBThreshold) returns (RTDBEmptyResponse);
+
+  // Removes a threshold of the given type from a point. Fails with NOT_FOUND if no threshold of that
+  // type is configured for the point.
+  rpc DeleteThreshold(RTDBDeleteThresholdRequest) returns (RTDBEmptyResponse);
+
+  // Creates a client-to-server data writing stream.
+  // The method provides maximum data writing performance.
+  // Data writing is performed without confirmation (no reverse flow from server to client).
+  // The method creates missing items and performs writing.
+  rpc WriteDataStream(stream RTDBWriteItemsRequest) returns (RTDBEmptyResponse);
+
+  // Creates a data subscription stream from the server to the client.
+  // Upon opening the stream, the server sends the current data slice for the specified list of items,
+  // subsequent data transmission occurs upon change and periodically according
+  // to the specified subscription parameters.
+  rpc Subscribe(RTDBSubscribeRequest) returns (stream RTDBItemsResponse);
+
+
+  // Sets a breaker's IEC 61850 Mod-style operating mode (On/Blocked/Test/
+  // Off), controlling whether it accepts control commands and whether its
+  // protection function drives real physical output.
+  rpc ProtectionTerminalSetMode(ProtectionTerminalSetModeRequest) returns (RTDBSupervisoryControlResponse);
+}
+
+
+// UUID representation
+message UUID {
+  string value = 1;
+}
+
+// Request without data (empty).
+// Used when no data transmission is required.
+message RTDBEmptyRequest {}
+
+// Response without data (empty).
+// Used when no data transmission is required.
+message RTDBEmptyResponse {}
+
+// Response to a GetHealth request.
+message RTDBHealthResponse {
+  // Build version string (git describe --tags --always plus build timestamp).
+  string version = 1;
+  // When this server process started.
+  google.protobuf.Timestamp start_time = 2;
+  // Number of points (items) currently held in the RTDB.
+  int64 points_count = 3;
+}
+
+// RTDB data value
+message RTDBDataValue {
+  // Timestamp of the value
+  google.protobuf.Timestamp timestamp = 1;
+  // Timestamp from FEP
+  google.protobuf.Timestamp timestamp_fep = 2;
+  // Value
+  double value = 3;
+  // Quality status
+  uint32 quality = 4;
+}
+
+// RTDB item datapoint
+message RTDBItem {
+  // Point identifier.
+  string key = 1;
+  // Timestamp of the last data update.
+  google.protobuf.Timestamp update_at = 2;
+  // Data
+  RTDBDataValue data = 3;
+  // Type
+  RTDBItemType type = 4;
+  // Current source. Reserved identifiers: 1 = manually entered data, 2 = calculator module.
+  uint64 source = 5;
+}
+
+message RTDBSupervisoryControlItem {
+  // Point identifier.
+  string key = 1;
+  // Data
+  RTDBDataValue data = 2;
+  // Current source. Reserved identifiers: 1 = manually entered data, 2 = calculator module.
+  uint64 source = 3;
+  // Select flag
+  bool select = 4;
+  // Execute flag
+  bool execute = 5;
+  // Test flag
+  bool test = 6;
+}
+
+message RTDBSupervisoryControlObject {
+  // Point identifier.
+  UUID mrid = 1;
+  // Data
+  RTDBDataValue data = 2;
+  // Current source. Reserved identifiers: 1 = manually entered data, 2 = calculator module.
+  uint64 source = 3;
+  // Select flag
+  bool select = 4;
+  // Execute flag
+  bool execute = 5;
+  // Test flag
+  bool test = 6;
+}
+
+// Request to add items
+message RTDBKeysRequest {
+  // List of item identifiers.
+  repeated string keys = 1;
+  // Client text identifier for logging and debugging
+  string client_id = 2;
+}
+
+// Request item
+message RTDBItemExistsRequest {
+  // Item identifier (tag)
+  string key = 1;
+}
+
+// Request item
+message RTDBItemExistsResponse {
+  // Flag
+  bool exists = 1;
+}
+
+// Request to create items
+message RTDBAddItemsRequest {
+  // List of item identifiers.
+  repeated string keys = 1;
+  // Client text identifier for logging and debugging
+  string client_id = 2;
+  // Current source to set for newly created items. Reserved identifiers: 1 = manually entered data,
+  // 2 = calculator module. Cells that already exist are left untouched.
+  uint64 source = 3;
+  // Datatype
+  RTDBItemType type = 4;
+}
+
+// Request to add items
+message RTDBKeysResponse {
+  // List of item identifiers.
+  repeated string keys = 1;
+}
+
+// Response with information about items
+message RTDBItemsResponse {
+  // Information about items.
+  repeated RTDBItem items = 1;
+}
+
+// Last data received from a single source for a point
+message RTDBSourceData {
+  // Source identifier. Reserved identifiers: 1 = manually entered data, 2 = calculator module.
+  uint64 source = 1;
+  // Last data received from this source
+  RTDBDataValue data = 2;
+}
+
+// Last data received from every source that has ever written to a point
+message RTDBItemSources {
+  // Point identifier
+  string key = 1;
+  // Last data received from each source, keyed by source identifier
+  repeated RTDBSourceData sources = 2;
+}
+
+// Response with per-point source data
+message RTDBItemSourcesResponse {
+  // Points found in the RTDB; a requested key not found is omitted, not created.
+  repeated RTDBItemSources items = 1;
+}
+
+message RTDBWriteItemsRequest {
+  // Information about items.
+  repeated RTDBItem items = 1;
+  // Client text identifier for logging and debugging
+  string client_id = 2;
+}
+
+message RTDBSupervisoryControlRequest {
+  // Information about item
+  RTDBSupervisoryControlItem item = 1;
+  // Client text identifier for logging and debugging
+  string client_id = 2;
+}
+
+message RTDBSupervisoryControlObjectRequest {
+  // Information about object
+  RTDBSupervisoryControlObject object = 1;
+  // Client text identifier for logging and debugging
+  string client_id = 2;
+}
+
+enum RTDBSupervisoryControlResult {
+  OK = 0;
+  ERROR_TIMEOUT = 1;
+  ERROR_BLOCKED = 2;
+  ERROR_UNKNOW = 3;
+  ERROR_NOT_SUPPORTED = 4;
+  ERROR_OBJECT_IS_NOT_FOUND = 5;
+  ERROR_ITEM_IS_NOT_FOUND = 6;
+  ERROR_NOT_SELECTED = 7;
+}
+
+message RTDBSupervisoryControlResponse {
+  RTDBSupervisoryControlResult result = 1;
+}
+
+message RTDBSetManualEnteredDataRequest {
+  // Point identifier
+  string key = 1;
+  // New manual entered data value
+  double value = 2;
+}
+
+message RTDBSetQualityRequest {
+  // List of item identifiers.
+  repeated string keys = 1;
+  // Quality status
+  uint32 quality = 2;
+}
+
+// Kinds of threshold that can be configured on a point, mirroring objects.threshold_type - ids match
+// that table's rows exactly (1-4), not independently assigned.
+enum RTDBThresholdType {
+  THRESHOLD_TYPE_NOT_SET = 0;
+  UPPER_WARNING_LIMIT = 1;
+  LOWER_WARNING_LIMIT = 2;
+  UPPER_ALARM_LIMIT = 3;
+  LOWER_ALARM_LIMIT = 4;
+}
+
+// A single threshold configured (or to be configured) for a point. A point has at most one value per
+// RTDBThresholdType.
+message RTDBThreshold {
+  // Point identifier
+  string key = 1;
+  // Which kind of threshold this is
+  RTDBThresholdType type = 2;
+  // Threshold value
+  double value = 3;
+}
+
+message RTDBDeleteThresholdRequest {
+  // Point identifier
+  string key = 1;
+  // Which kind of threshold to remove
+  RTDBThresholdType type = 2;
+}
+
+// One threshold value scoped to its type, as returned by GetThresholds (RTDBThreshold without the
+// repeated key, since it's already scoped by the enclosing RTDBPointThresholds)
+message RTDBThresholdValue {
+  RTDBThresholdType type = 1;
+  double value = 2;
+}
+
+// Every threshold configured for a single point
+message RTDBPointThresholds {
+  // Point identifier
+  string key = 1;
+  // Configured thresholds, keyed by type
+  repeated RTDBThresholdValue thresholds = 2;
+}
+
+// Response with per-point threshold data
+message RTDBThresholdsResponse {
+  // Points with at least one configured threshold; a requested key with none, or not found in the
+  // RTDB, is omitted rather than created.
+  repeated RTDBPointThresholds items = 1;
+}
+
+message RTDBSetCurrentSourceRequest {
+  // Point identifier
+  string key = 1;
+  // Source to make current. Reserved identifiers: 1 = manually entered data, 2 = calculator module.
+  uint64 source = 2;
+}
+
+message RTDBRegisterSourceRequest {
+  // Source to make current. Reserved identifiers: 1 = manually entered data, 2 = calculator module.
+  uint64 source = 1;
+
+  // Source name for logging
+  string name = 2;
+
+  // Point identifier. The reserved key "ALL", used alone, set new source for every item currently in the RTDB.
+  repeated string key = 3;
+}
+
+message RTDBSourceInfo {
+  // Source identifier. Reserved identifiers: 1 = manually entered data, 2 = calculator module.
+  uint64 source = 1;
+
+  // Source name for logging
+  string name = 2;
+}
+
+message RTDBSourcesResponse {
+  // List of currently registered sources.
+  repeated RTDBSourceInfo sources = 1;
+}
+
+// Request to open a data subscription channel
+message RTDBSubscribeRequest {
+  // Subscription options for receiving data from items.
+  // Pass a single option with key "ALL" to subscribe to every item currently in the RTDB.
+  repeated RTDBSubscribeItemOptions item_options = 1;
+  // Slice sending period in seconds.
+  // If set to 0, periodic slice sending is not performed
+  int32 send_period = 2;
+
+  // Client text identifier for logging and debugging
+  string client_id = 3;
+}
+
+// Type of value change control
+enum RTDBSubscribeDataControl {
+  // Value change control is disabled
+  // All data records to the client are sent
+  OFF = 0;
+  // Absolute value change control
+  // Data is sent if the change in data in absolute value
+  // relative to the last transmitted value is greater
+  // by the amount specified in the subscription options (delta)
+  VALUE = 1;
+  // Percentage change control
+  // Data is sent if the change in data in percentage
+  // relative to the last transmitted value
+  // is greater by the amount specified in the subscription options (delta)
+  PERCENT = 2;
+}
+
+// Known sources
+enum RTDBKnownSources {
+  SOURCE_NOT_SET = 0;
+  MANUAL_ENTERED_DATA = 1;
+  CALCULATOR = 2;
+}
+
+// Data types
+enum RTDBItemType {
+  TYPE_NOT_SET = 0;
+  DIGITAL_1BIT = 1;
+  DIGITAL_2BIT = 2;
+  ANALOG = 3;
+  PROTECTION_EVENT = 4;
+  INTEGER = 5;
+}
+
+// Subscription options for receiving data from items in the RTDB
+message RTDBSubscribeItemOptions {
+  // Point identifier. The reserved key "ALL", used alone, subscribes to every item currently in the RTDB.
+  string key = 1;
+  // Type of value change control
+  RTDBSubscribeDataControl control_type = 2;
+  // Value control amount
+  double delta = 3;
+}
+
+
+// ProtectionTerminalMode mirrors IEC 61850 Edition 1's Mod/Beh enumeration.
+// TEST_BLOCKED (4) is deliberately not modelled by this simulator, so
+// values skip from TEST (3) straight to OFF (5).
+enum ProtectionTerminalMode {
+  MODE_UNKNOWN = 0;
+  MODE_ON = 1;
+  MODE_BLOCKED = 2;
+  MODE_TEST = 3;
+  MODE_OFF = 5;
+}
+
+message ProtectionTerminalSetModeRequest {
+  // Point identifier, "<breaker-name>.mode"
+  string key = 1;
+  // The mode to set the breaker to
+  ProtectionTerminalMode mode = 2;
+  // Why the mode is being changed, for logging
+  string reason = 3;
+  // Client text identifier for logging and debugging
+  string client_id = 4;
+}

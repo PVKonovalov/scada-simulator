@@ -11,6 +11,7 @@ import (
 	"scada-simulator/internal/faultsimserver"
 	flags2 "scada-simulator/internal/flags"
 	"scada-simulator/internal/restserver"
+	"scada-simulator/internal/rtdbfeed"
 	"scada-simulator/internal/telemetryserver"
 	"scada-simulator/pkg/breaker"
 	"scada-simulator/pkg/configuration"
@@ -92,7 +93,34 @@ func main() {
 	// FaultSimulator is served alongside TelemetryStream on the same gRPC
 	// server/port — see api/scada/faultsim.proto's package doc for why it's
 	// a separate service rather than an addition to TelemetryStream.
-	faultsim.RegisterFaultSimulatorServer(gRpcServer, faultsimserver.NewFaultSimulatorServer(ctx, simulators, llog.Logger))
+	faultSimServer := faultsimserver.NewFaultSimulatorServer(ctx, simulators, llog.Logger)
+
+	// The optional RTDB feed drives mapped breakers' analog inputs from RTDB
+	// points (read-only); an active faultsim injection overrides it, and a
+	// zero-current faultsim injection hands a breaker back to it.
+	var feed *rtdbfeed.Feed
+	if config.Config.Rtdb.Enabled {
+		mappings := make(rtdbfeed.Mappings, len(config.Config.Breakers))
+		for _, cfg := range config.Config.Breakers {
+			if len(cfg.RtdbMapping) > 0 {
+				mappings[cfg.Name] = cfg.RtdbMapping
+			}
+		}
+		warnings, err := mappings.Validate(simulators)
+		if err != nil {
+			llog.Logger.Fatalf("Invalid rtdb_mapping: %v", err)
+		}
+		for _, w := range warnings {
+			llog.Logger.Warnf("rtdbfeed: %s", w)
+		}
+		feed = rtdbfeed.New(rtdbfeed.Config{
+			Addr:              fmt.Sprintf("%s:%d", config.Config.Rtdb.Host, config.Config.Rtdb.Port),
+			ClientID:          config.Config.Rtdb.ClientId,
+			ReconnectInterval: config.Config.Rtdb.ReconnectInterval,
+		}, mappings, simulators, faultSimServer.Overriding, llog.Logger)
+		faultSimServer.WithHandoff(feed.Handles)
+	}
+	faultsim.RegisterFaultSimulatorServer(gRpcServer, faultSimServer)
 
 	if llog.Logger.GetLevel() >= llog.DebugLevel {
 		reflection.Register(gRpcServer)
@@ -128,6 +156,12 @@ func main() {
 		}
 		llog.Logger.Infof("REST service stopped")
 	})
+	if feed != nil {
+		wg.Go(func() {
+			feed.Run(ctx)
+			llog.Logger.Infof("RTDB feed stopped")
+		})
+	}
 
 	llog.Logger.Infof("scada-simulator started, gRPC listen %s, REST listen %s", listener.Addr(), restBind)
 	<-ctx.Done()

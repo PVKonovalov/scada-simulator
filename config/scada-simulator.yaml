@@ -12,6 +12,18 @@ dms:
       grpc:
         host: 0.0.0.0
         port: 50051
+# Optional read-only feed of breakers' analog inputs from RTDB (rdss-dms-rtdb)
+# points, configured per breaker via rtdb_mapping below. The simulator only
+# reads from the RTDB (IsExists/Subscribe); it never writes to it.
+rtdb:
+  enabled: true
+  # RTDB gRPC server.
+  host: 127.0.0.1
+  port: 5010
+  # Identifies this simulator in the RTDB's logs.
+  client_id: scada-simulator
+  # Wait between connection attempts, initially and after a broken stream.
+  reconnect_interval: 5s
 # One entry per breaker to emulate; the number of breakers emulated is
 # simply the length of this list.
 breakers:
@@ -28,7 +40,7 @@ breakers:
       - group: 1
         settings:
           # Stage 51 (time overcurrent): pickup, curve, time multiplier.
-          pickup_current: 400        # amps
+          pickup_current: 200        # amps
           curve: iec_standard_inverse # definite_time | iec_standard_inverse | iec_very_inverse | iec_extremely_inverse
           time_multiplier: 0.3        # TMS, per IEC 60255
           definite_time: 500ms        # used only when curve is definite_time
@@ -47,6 +59,15 @@ breakers:
     selection_timeout: 10s
     # Power-system frequency, used to size the instantaneous stage's operate delay.
     nominal_frequency_hz: 50
+    # Internal analog tag leaf -> RTDB point key (used only when rtdb.enabled).
+    # Leaves: current.a/b/c, voltage.a/b/c, power.active, power.reactive,
+    # power.apparent, frequency. One RTDB key may feed several leaves.
+    # Unmapped leaves stay 0. A faultsim injection overrides this feed until
+    # a faultsim call with zero current hands the breaker back to it.
+    rtdb_mapping:
+      current.a: case-1-branch-35-i-from
+      current.b: case-1-branch-35-i-from
+      current.c: case-1-branch-35-i-from
 
   - name: feeder-2
     initial_position: open

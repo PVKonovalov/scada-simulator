@@ -64,6 +64,15 @@ new value back below pickup, e.g. `faultsim -breaker feeder-1 -current 0`
 — there's no separate "stop"/"clear" command, since setting the current
 value back down *is* clearing it.
 
+**Breakers fed from the RTDB.** When `rtdb.enabled` is true and a breaker
+has an `rtdb_mapping` (see `config/scada-simulator.yaml` and
+`internal/rtdbfeed`), its analog inputs normally follow live RTDB values.
+A `faultsim` injection overrides that feed for as long as it's sustained.
+For such a breaker, an injection with zero current on all three phases
+(`-current 0`) isn't sustained: it's fed once and then hands the breaker
+back to the RTDB feed, which resumes within 200ms. Clearing with a small
+non-zero value (e.g. `-current 1`) keeps `faultsim` in control instead.
+
 The examples below assume `config/scada-simulator.yaml`'s two sample
 breakers:
 
