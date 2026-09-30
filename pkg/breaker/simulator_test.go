@@ -785,3 +785,83 @@ func TestSimulator_Concurrency(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestSimulator_StaleReclaimTimerDoesNotResetSequence reproduces a
+// time-overcurrent fault whose trip time plus dead time is shorter than
+// the reclaim time: reclose #1's reclaim timer is still pending when
+// reclose #2 closes, and must not fire into reclose #2's Reclaim state
+// and reset the attempt count — the sequence must reach Lockout after
+// MaxAttempts, with no EventAutoRecloseSucceeded along the way.
+func TestSimulator_StaleReclaimTimerDoesNotResetSequence(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sim := New(ctx, Config{
+		InitialPosition: PositionClosed,
+		SettingsGroups: []SettingsGroupConfig{
+			{Group: SettingsGroup1, Settings: ProtectionSettings{
+				PickupCurrent: 200,
+				Curve:         CurveDefiniteTime,
+				DefiniteTime:  40 * time.Millisecond,
+			}},
+		},
+		AutoReclose: AutoRecloseConfig{
+			Enabled:     true,
+			MaxAttempts: 3,
+			DeadTimes:   []time.Duration{20 * time.Millisecond, 20 * time.Millisecond, 20 * time.Millisecond},
+			// Longer than trip (40ms) + dead time (20ms) + operate (5ms),
+			// so each reclose's reclaim timer outlives the next reclose.
+			ReclaimTime: 100 * time.Millisecond,
+		},
+		MechanicalOperateTime: 5 * time.Millisecond,
+	})
+	defer sim.Close()
+
+	events, err := sim.Subscribe(ctx, EventAutoRecloseAttempt, EventAutoRecloseSucceeded, EventLockout)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	// Sustain the fault like a periodic plant feed; stage 51 integrates
+	// its operate time over the gaps between injections.
+	feedCtx, stopFeed := context.WithCancel(ctx)
+	defer stopFeed()
+	go func() {
+		ticker := time.NewTicker(2 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				_ = sim.InjectMeasurement(Measurement{Current: PhaseValues{A: 232, B: 232, C: 232}})
+			case <-feedCtx.Done():
+				return
+			}
+		}
+	}()
+
+	attempts := 0
+	for {
+		select {
+		case ev := <-events:
+			switch ev.Kind {
+			case EventAutoRecloseAttempt:
+				attempts++
+				if got := ev.Detail.(AutoRecloseAttemptDetail).Attempt; got != attempts {
+					t.Fatalf("autoreclose attempt number = %d, want %d (sequence was reset)", got, attempts)
+				}
+			case EventAutoRecloseSucceeded:
+				t.Fatalf("EventAutoRecloseSucceeded after %d attempt(s) while the fault persists (stale reclaim timer)", attempts)
+			case EventLockout:
+				if attempts != 3 {
+					t.Fatalf("Lockout after %d attempt(s), want 3", attempts)
+				}
+				if status := sim.ProtectionStatus(); status.State != ProtectionLockout {
+					t.Fatalf("ProtectionStatus().State = %v, want Lockout", status.State)
+				}
+				return
+			}
+		case <-ctx.Done():
+			t.Fatalf("timed out after %d attempt(s) without Lockout", attempts)
+		}
+	}
+}

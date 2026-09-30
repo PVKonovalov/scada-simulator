@@ -69,7 +69,8 @@ type simState struct {
 	autoReclose *autoReclose // the autoreclose sequencing state machine
 	arClosing   bool         // true while the in-flight Close operation was issued by autoReclose, not a SCADA operator
 
-	mechGen int // incremented on every beginOperate, so a stale mechanical-completion timer can recognise it has been superseded
+	mechGen    int // incremented on every beginOperate, so a stale mechanical-completion timer can recognise it has been superseded
+	reclaimGen int // incremented whenever a reclaim timer starts or a trip interrupts Reclaim, so a stale reclaim timer from an earlier reclose attempt can recognise it has been superseded
 
 	selections        map[SelectionID]*selection // active select-before-operate reservations
 	expiredSelections map[SelectionID]struct{}   // recently expired selection ids, kept briefly so Operate/Cancel can report SelectionExpiredError
@@ -540,6 +541,7 @@ func (s *Simulator) trip(st *simState, cause ProtectionCause, current float64, o
 	st.protectionState = ProtectionTripped
 	st.stage51Progress = 0
 	st.instArmed = false
+	st.reclaimGen++ // a trip during Reclaim ends that reclaim period: its pending timer must not later report success
 	s.emit(st, EventTrip, TripDetail{Cause: cause, Current: current, OperateTime: operateTime})
 
 	if st.mode == ModeBlocked || st.mode == ModeTestBlocked {
@@ -621,7 +623,17 @@ func (s *Simulator) completeOperate(st *simState, target Position) {
 		if st.arClosing {
 			st.arClosing = false
 			reclaim := st.autoReclose.OnCloseSucceeded()
+			st.reclaimGen++
+			gen := st.reclaimGen
 			s.after(reclaim, func(st *simState) {
+				if st.reclaimGen != gen {
+					// Superseded by a trip or a later reclose: without this
+					// check, a reclaim timer outliving the next reclose (trip
+					// time + dead time < reclaim time) would find that
+					// attempt's Reclaim state and reset the sequence to
+					// Ready, so it would never reach Lockout.
+					return
+				}
 				attempts := st.autoReclose.Status().Attempt
 				if st.autoReclose.OnReclaimElapsed() {
 					s.emit(st, EventAutoRecloseSucceeded, AutoRecloseSucceededDetail{Attempts: attempts})
